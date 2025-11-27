@@ -5,9 +5,9 @@ const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-export async function POST(request) {
+export async function POST(request: Request) {
   try {
-    const body = await request.json();
+    const body = (await request.json()) as any;
 
     const {
       businessName,
@@ -78,7 +78,7 @@ Main concerns: ${concernsText}
     `.trim();
 
     const userPrompt = `
-Using the organisation details below, draft a clear, practical **AI Use Policy** for staff.
+Using the organisation details below, draft a clear, practical AI Use Policy for staff.
 
 The policy is for: ${safeBusinessName} (${safeIndustry}) in ${safeCountry}.
 
