@@ -1,12 +1,25 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
 
-const client = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
-
 export async function POST(request: Request) {
   try {
+    // 🔐 Get API key at request time, not at build time
+    const apiKey = process.env.OPENAI_API_KEY;
+
+    if (!apiKey) {
+      console.error("Missing OPENAI_API_KEY in environment.");
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "Server is missing OpenAI API credentials. Please contact the administrator.",
+        },
+        { status: 500 }
+      );
+    }
+
+    const client = new OpenAI({ apiKey });
+
     const body = (await request.json()) as any;
 
     const {
