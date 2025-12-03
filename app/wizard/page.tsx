@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import GenerateStaffGuideButton from "../components/GenerateStaffGuideButton";
 
 type Step = 1 | 2 | 3;
 
@@ -719,7 +720,7 @@ export default function WizardPage() {
                     lawyer review it before rolling it out to staff.
                   </p>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
                     onClick={handlePrint}
@@ -785,19 +786,20 @@ export default function WizardPage() {
                   </p>
                 </div>
 
-                {/* Coming soon column */}
+                {/* Right-hand column */}
                 <div className="space-y-3 text-[11px]">
                   <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
                     <div className="flex items-center justify-between mb-1">
                       <span className="font-medium text-slate-800">Staff guide</span>
-                      <span className="rounded-full bg-amber-100 text-amber-700 px-2 py-0.5 text-[10px]">
-                        Coming soon
+                      <span className="rounded-full bg-emerald-100 text-emerald-700 px-2 py-0.5 text-[10px]">
+                        New
                       </span>
                     </div>
-                    <p className="text-slate-600">
-                      A short, plain-English summary of this policy you can send to your
-                      team with examples tailored to {form.industry || "your industry"}.
+                    <p className="text-slate-600 mb-2">
+                      Turn this policy into a short, plain-English summary you can send
+                      to your team or paste into your internal wiki.
                     </p>
+                    <GenerateStaffGuideButton policyText={result.fullText || ""} />
                   </div>
 
                   <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
@@ -824,8 +826,7 @@ export default function WizardPage() {
                       <li>Review and edit with a lawyer</li>
                       <li>Roll it out to your team</li>
                       <li>
-                        Later: upgrade to get staff guide &amp; training links (once
-                        built)
+                        Use the staff guide to help them actually understand it
                       </li>
                     </ul>
                   </div>
