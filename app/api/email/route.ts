@@ -1,6 +1,8 @@
 // app/api/email/route.ts
 import { NextRequest, NextResponse } from "next/server";
 
+export const runtime = "nodejs";
+
 export async function POST(req: NextRequest) {
   try {
     const { to, subject, body } = (await req.json().catch(() => ({}))) as {
@@ -33,8 +35,14 @@ export async function POST(req: NextRequest) {
     const apiKey = process.env.RESEND_API_KEY;
     const from = process.env.RESEND_FROM_EMAIL;
 
+    // Debug log so we can see if env vars are actually present
+    console.log("[/api/email] env check:", {
+      hasApiKey: !!apiKey,
+      hasFrom: !!from,
+      from,
+    });
+
     if (!apiKey || !from) {
-      console.error("Missing RESEND_API_KEY or RESEND_FROM_EMAIL env vars");
       return NextResponse.json(
         {
           error:
@@ -44,8 +52,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // If you're using the sandbox sender, Resend prefers plain address
+    const cleanFrom = from.includes("onboarding@resend.dev")
+      ? "onboarding@resend.dev"
+      : from;
+
     const payload = {
-      from, // e.g. "PolicySprint <no-reply@yourdomain.com>"
+      from: cleanFrom,
       to: [to],
       subject,
       text: body,
@@ -61,9 +74,13 @@ export async function POST(req: NextRequest) {
     });
 
     const data = await response.json().catch(() => ({} as any));
+    console.log("[/api/email] Resend response:", {
+      status: response.status,
+      ok: response.ok,
+      data,
+    });
 
     if (!response.ok) {
-      console.error("Resend error", response.status, data);
       return NextResponse.json(
         { error: "Failed to send email via Resend." },
         { status: 502 }
@@ -71,10 +88,10 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({ success: true });
-  } catch (err) {
-    console.error("Email route error:", err);
+  } catch (err: any) {
+    console.error("[/api/email] Unexpected error:", err);
     return NextResponse.json(
-      { error: "Unexpected server error." },
+      { error: err?.message || "Unexpected server error." },
       { status: 500 }
     );
   }
