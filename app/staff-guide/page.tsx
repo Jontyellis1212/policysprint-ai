@@ -1,211 +1,242 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import EmailButton from "../components/EmailButton";
+
+const LAST_POLICY_KEY = "policysprint:lastPolicy";
 
 export default function StaffGuidePage() {
-  const [organisationName, setOrganisationName] = useState("");
-  const [audienceDescription, setAudienceDescription] = useState(
-    "Non-technical staff who use AI tools as part of their work"
-  );
   const [policyText, setPolicyText] = useState("");
   const [guide, setGuide] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [prefilledFromStorage, setPrefilledFromStorage] = useState(false);
 
-  async function handleSubmit(e: FormEvent) {
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (policyText.trim().length > 0) return;
+
+    try {
+      const stored = window.localStorage.getItem(LAST_POLICY_KEY);
+      if (stored && stored.trim().length > 0) {
+        setPolicyText(stored);
+        setPrefilledFromStorage(true);
+      }
+    } catch (err) {
+      console.error("Error reading localStorage", err);
+    }
+  }, [policyText]);
+
+  async function handleGenerate(e: React.FormEvent) {
     e.preventDefault();
-    setError(null);
+
+    if (!policyText.trim()) {
+      setErrorMessage("Please paste your AI Use Policy first.");
+      return;
+    }
+
+    setErrorMessage(null);
     setGuide("");
-    setIsLoading(true);
+    setLoading(true);
 
     try {
       const res = await fetch("/api/staff-guide", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          organisationName: organisationName || "the organisation",
-          audienceDescription,
-          policyText,
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ policyText }),
       });
 
+      const data = await res.json().catch(() => ({} as any));
       if (!res.ok) {
-        const data = await res.json().catch(() => null);
-        throw new Error(data?.error || "Failed to generate staff guide");
+        throw new Error(data?.error || "Failed to generate staff guide.");
       }
 
-      const data = await res.json();
+      if (!data.guide || typeof data.guide !== "string") {
+        throw new Error("Unexpected response from staff guide API.");
+      }
+
       setGuide(data.guide);
     } catch (err: any) {
       console.error(err);
-      setError(err.message || "Something went wrong generating the guide.");
+      setErrorMessage(err?.message || "Something went wrong.");
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
   }
 
-  const canSubmit = policyText.trim().length > 100 && !isLoading;
+  async function handleCopy() {
+    if (!guide) return;
+    try {
+      await navigator.clipboard.writeText(guide);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch (err) {
+      console.error("Copy failed", err);
+    }
+  }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-50">
-      <main className="mx-auto max-w-5xl px-4 py-10 sm:px-6 lg:px-8">
-        {/* Hero */}
-        <section className="max-w-3xl">
-          <p className="mb-3 inline-flex items-center gap-2 rounded-full border border-slate-700/80 bg-slate-900/70 px-3 py-1 text-xs font-medium text-slate-300">
-            <span className="inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400" />
-            New · Staff-facing AI Use Guide
-          </p>
-          <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight">
-            Turn your AI Use Policy into a{" "}
-            <span className="bg-gradient-to-r from-emerald-300 via-cyan-300 to-sky-300 bg-clip-text text-transparent">
-              simple staff guide
-            </span>
-          </h1>
-          <p className="mt-3 text-sm sm:text-base text-slate-300">
-            Paste the AI Use Policy you generated on the main page and we&apos;ll
-            convert it into a plain-language guide you can share with staff.
-          </p>
-          <p className="mt-2 text-xs text-slate-400">
-            Best for: onboarding packs, internal wiki pages, and &quot;here&apos;s
-            what you actually need to know&quot; summaries.
-          </p>
-        </section>
-
-        {/* Form + Output */}
-        <section className="mt-8 grid gap-8 lg:grid-cols-2">
-          {/* Left: Input form */}
-          <form
-            onSubmit={handleSubmit}
-            className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5 sm:p-6 shadow-sm"
-          >
-            <h2 className="text-base font-semibold mb-4">
-              1. Paste your policy and context
-            </h2>
-
-            <div className="space-y-4 text-sm">
-              <div>
-                <label className="mb-1 block text-slate-200">
-                  Organisation name (optional)
-                </label>
-                <input
-                  type="text"
-                  value={organisationName}
-                  onChange={(e) => setOrganisationName(e.target.value)}
-                  placeholder="Acme Co."
-                  className="w-full rounded-md border border-slate-700 bg-slate-950/70 px-3 py-2 text-sm text-slate-50 outline-none focus:border-emerald-400"
-                />
+    <div className="min-h-screen bg-slate-50">
+      <main className="max-w-5xl mx-auto px-4 py-6 md:py-10">
+        <div className="space-y-6">
+          {/* Header bar */}
+          <header className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div className="flex items-center gap-2">
+              <div className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-900 text-xs font-semibold text-white">
+                PS
               </div>
-
               <div>
-                <label className="mb-1 block text-slate-200">
-                  Who is this guide for?
-                </label>
-                <textarea
-                  value={audienceDescription}
-                  onChange={(e) => setAudienceDescription(e.target.value)}
-                  rows={2}
-                  className="w-full rounded-md border border-slate-700 bg-slate-950/70 px-3 py-2 text-sm text-slate-50 outline-none focus:border-emerald-400"
-                />
-                <p className="mt-1 text-xs text-slate-400">
-                  Example: &quot;Customer service and sales staff using AI tools for
-                  drafting emails, messages and internal notes.&quot;
-                </p>
-              </div>
-
-              <div>
-                <label className="mb-1 block text-slate-200">
-                  AI Use Policy (paste from PolicySprint output)
-                </label>
-                <textarea
-                  value={policyText}
-                  onChange={(e) => setPolicyText(e.target.value)}
-                  rows={12}
-                  placeholder="Paste the full AI Use Policy you generated on the main page..."
-                  className="w-full rounded-md border border-slate-700 bg-slate-950/70 px-3 py-2 text-sm text-slate-50 outline-none focus:border-emerald-400"
-                />
-                <p className="mt-1 text-xs text-slate-400">
-                  TIP: Paste the full policy, not just a section. The guide will
-                  pull out the key &quot;what do I do / not do?&quot; points.
-                </p>
+                <h1 className="text-sm font-semibold text-slate-900">
+                  PolicySprint
+                </h1>
+                <p className="text-xs text-slate-500">Staff guide generator</p>
               </div>
             </div>
 
-            {error && (
-              <p className="mt-4 text-xs text-rose-300">
-                {error || "Something went wrong."}
-              </p>
-            )}
+            <div className="text-[11px] text-slate-500">
+              Help staff understand the policy in plain English
+            </div>
+          </header>
 
-            <button
-              type="submit"
-              disabled={!canSubmit}
-              className={`mt-5 inline-flex w-full items-center justify-center rounded-full px-4 py-2.5 text-sm font-medium transition ${
-                canSubmit
-                  ? "bg-emerald-500 text-slate-950 hover:bg-emerald-400"
-                  : "cursor-not-allowed bg-slate-700 text-slate-400"
-              }`}
-            >
-              {isLoading ? "Generating staff guide..." : "Generate staff guide"}
-            </button>
+          {/* Hero card */}
+          <section className="bg-white border border-slate-200 rounded-2xl shadow-sm p-5 md:p-6 space-y-4">
+            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+              <div className="space-y-1">
+                <h2 className="text-xl md:text-2xl font-semibold text-slate-900">
+                  Create a{" "}
+                  <span className="bg-gradient-to-r from-sky-500 to-emerald-500 bg-clip-text text-transparent">
+                    staff-friendly AI guide
+                  </span>
+                </h2>
+                <p className="text-xs md:text-sm text-slate-600 max-w-xl">
+                  Convert your AI Use Policy into a short, plain-English summary
+                  that’s easy for staff to read and understand.
+                </p>
+                {prefilledFromStorage && (
+                  <p className="text-[11px] text-emerald-700">
+                    Loaded your most recent policy from the wizard.
+                  </p>
+                )}
+              </div>
 
-            <p className="mt-2 text-[11px] text-slate-500">
-              Your policy text is sent securely to the server, where OpenAI is
-              called via API. The guide is generated once and shown here – you
-              can copy it into your own templates or wiki.
-            </p>
-          </form>
-
-          {/* Right: Output */}
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 sm:p-6 shadow-sm flex flex-col">
-            <div className="flex items-center justify-between gap-3 mb-3">
-              <h2 className="text-base font-semibold">
-                2. Staff-facing AI Use Guide
-              </h2>
-              <button
-                type="button"
-                onClick={() => {
-                  if (!guide) return;
-                  navigator.clipboard.writeText(guide).catch(() => {});
-                }}
-                disabled={!guide}
-                className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
-                  guide
-                    ? "border-slate-600 text-slate-100 hover:border-emerald-400"
-                    : "border-slate-800 text-slate-500 cursor-not-allowed"
-                }`}
+              <Link
+                href="/wizard"
+                className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-[11px] font-medium text-slate-600 hover:bg-white hover:border-slate-300"
               >
-                Copy guide
-              </button>
+                ← Back to policy wizard
+              </Link>
             </div>
 
-            <div className="relative flex-1 rounded-xl border border-slate-800 bg-slate-950/60 p-4 text-sm leading-relaxed text-slate-200">
-              {!guide && !isLoading && (
-                <p className="text-slate-400">
-                  After you generate, the staff guide will appear here in
-                  friendly, practical language: key dos and don&apos;ts, examples,
-                  and how to get help if they&apos;re unsure.
-                </p>
-              )}
+            {/* Grid layout */}
+            <div className="mt-4 grid gap-6 md:grid-cols-[minmax(0,2.1fr),minmax(0,1.9fr)]">
+              {/* LEFT: input form */}
+              <form
+                onSubmit={handleGenerate}
+                className="space-y-4 rounded-xl border border-slate-200 bg-slate-50 p-4"
+              >
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">
+                    Your AI Use Policy
+                  </label>
+                  <textarea
+                    value={policyText}
+                    onChange={(e) => setPolicyText(e.target.value)}
+                    placeholder="Paste your full AI Use Policy here"
+                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 outline-none focus:border-slate-900 min-h-[200px]"
+                  />
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    A staff guide summarises your policy into simple, actionable
+                    rules staff can follow.
+                  </p>
+                </div>
 
-              {isLoading && (
-                <p className="text-slate-400 italic">
-                  Drafting your guide and turning legalese into something humans
-                  can actually read…
-                </p>
-              )}
+                {errorMessage && (
+                  <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[11px] text-red-700">
+                    {errorMessage}
+                  </div>
+                )}
 
-              {guide && <article className="whitespace-pre-wrap">{guide}</article>}
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="inline-flex items-center justify-center rounded-full bg-slate-900 px-5 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-60"
+                >
+                  {loading ? "Generating guide…" : "Generate staff guide"}
+                </button>
+              </form>
+
+              {/* RIGHT: output */}
+              <div className="rounded-xl border border-slate-200 bg-slate-900 text-slate-50 p-4 flex flex-col">
+                <div className="flex items-center justify-between mb-2">
+                  <div>
+                    <h3 className="text-sm font-semibold">Staff guide output</h3>
+                    <p className="text-[11px] text-slate-300">
+                      Summary of your AI Use Policy in plain English.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleCopy}
+                    disabled={!guide}
+                    className={`rounded-full border px-3 py-1.5 text-[11px] font-medium transition ${
+                      guide
+                        ? "border-slate-400 text-slate-50 hover:border-sky-300"
+                        : "border-slate-700 text-slate-500 cursor-not-allowed"
+                    }`}
+                  >
+                    {copied ? "Copied!" : "Copy"}
+                  </button>
+                </div>
+
+                <div className="mb-2">
+                  <EmailButton
+                    subject="Your AI Use Policy - Staff Guide"
+                    getBody={() => guide || ""}
+                    label="Email this guide"
+                    variant="dark"
+                  />
+                </div>
+
+                <div className="flex-1 rounded-lg border border-slate-700 bg-slate-950/70 p-3 text-xs whitespace-pre-wrap overflow-auto">
+                  {!guide && !loading && (
+                    <p className="text-slate-400">
+                      After generating, your staff guide will appear here.
+                      This includes:
+                      <br />
+                      • What staff can / can’t do  
+                      • How to use approved AI tools  
+                      • Privacy, data and safety rules  
+                      • Who to ask for help  
+                      <br />
+                      <br />
+                      Tip: paste this into your intranet or training LMS.
+                    </p>
+                  )}
+
+                  {loading && (
+                    <p className="text-slate-400 italic">
+                      Summarising your policy into friendly language…
+                    </p>
+                  )}
+
+                  {guide && !loading && guide}
+                </div>
+
+                <p className="mt-2 text-[11px] text-slate-400">
+                  Tip: Share this guide alongside your full policy for easier
+                  onboarding and refresher training.
+                </p>
+              </div>
             </div>
+          </section>
 
-            <p className="mt-3 text-[11px] text-slate-500">
-              Best practice: share this guide alongside the full AI Use Policy
-              so staff can skim the guide but still access the formal document
-              when needed.
-            </p>
-          </div>
-        </section>
+          <p className="text-[11px] text-slate-500">
+            Staff guides are for training only. Always keep your official AI
+            Use Policy as the source of truth.
+          </p>
+        </div>
       </main>
     </div>
   );

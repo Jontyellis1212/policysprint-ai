@@ -1,111 +1,130 @@
+// app/api/quiz/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import OpenAI from "openai";
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
-
-// If your other routes use "edge", you can change this to "edge".
-// "nodejs" is fine for this route.
-export const runtime = "nodejs";
+const MAX_QUESTIONS = 25;
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
+    const json = await req.json().catch(() => null);
 
-    const policyText = (body.policyText as string | undefined) ?? "";
-    const numQuestionsRaw = body.numQuestions;
-
-    if (!policyText.trim()) {
+    if (!json || typeof json !== "object") {
       return NextResponse.json(
-        { error: "Missing policyText in request body." },
-        { status: 400 }
+        { error: "Invalid JSON body." },
+        { status: 400 },
       );
     }
 
-    if (!process.env.OPENAI_API_KEY) {
+    const { policy, policyText, numQuestions } = json as {
+      policy?: unknown;
+      policyText?: unknown;
+      numQuestions?: unknown;
+    };
+
+    const finalPolicy =
+      typeof policyText === "string" && policyText.trim()
+        ? policyText
+        : typeof policy === "string" && policy.trim()
+        ? policy
+        : "";
+
+    if (!finalPolicy) {
       return NextResponse.json(
-        { error: "OPENAI_API_KEY is not configured on the server." },
-        { status: 500 }
+        { error: "Missing or empty policy text." },
+        { status: 400 },
       );
     }
 
-    // Make sure numQuestions is between 3 and 10
-    const parsedNum =
-      typeof numQuestionsRaw === "number"
-        ? numQuestionsRaw
-        : Number(numQuestionsRaw || 5);
+    if (
+      typeof numQuestions !== "number" ||
+      !Number.isFinite(numQuestions) ||
+      numQuestions <= 0
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "Invalid 'numQuestions' – must be a positive number.",
+        },
+        { status: 400 },
+      );
+    }
 
-    const safeNumQuestions = Math.min(Math.max(parsedNum, 3), 10);
+    if (numQuestions > MAX_QUESTIONS) {
+      return NextResponse.json(
+        {
+          error: `Too many questions requested. Max is ${MAX_QUESTIONS}.`,
+        },
+        { status: 400 },
+      );
+    }
+
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      console.error("OPENAI_API_KEY is not set");
+      return NextResponse.json(
+        { error: "Server configuration error." },
+        { status: 500 },
+      );
+    }
 
     const prompt = `
-You are helping an organisation train staff on its AI Use Policy.
+You are helping a company train staff on their AI Use Policy.
 
-Given the policy text below, create a short multiple-choice quiz to check staff have read and understood the key rules.
+The policy is below:
 
-Requirements:
-- Create exactly ${safeNumQuestions} questions.
-- Mix of:
-  - "What is allowed?" / "What is not allowed?"
-  - Data privacy / confidentiality
-  - Use of specific tools (if mentioned)
-  - Escalation / who to ask for help
-- Each question must have:
-  - A question text
-  - 3–4 answer options labelled A), B), C), (and D) if needed)
-  - Exactly ONE clearly correct answer
-- After each question, show the correct answer in a "Correct answer:" line so admins can mark it easily.
+---
+${finalPolicy}
+---
 
-Format it in plain text, for example:
+Create ${numQuestions} multiple-choice questions to test understanding of this policy.
+For each question:
+- Provide 4 possible answers (A, B, C, D).
+- Mark the correct answer at the end in the format: "Correct answer: X".
 
-Q1. [question...]
-A) ...
-B) ...
-C) ...
-Correct answer: B)
-
-Q2. ...
-
-Here is the AI Use Policy:
-
-"""${policyText}"""
+Number the questions clearly.
 `;
 
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4.1-mini",
-      messages: [
-        {
-          role: "system",
-          content:
-            "You are an assistant that writes clear, practical training quizzes based on company policies.",
-        },
-        {
-          role: "user",
-          content: prompt,
-        },
-      ],
+    const response = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: "gpt-4.1-mini",
+        input: prompt,
+      }),
     });
 
-    const textOutput = completion.choices[0]?.message?.content?.trim() ?? "";
-
-    if (!textOutput) {
+    if (!response.ok) {
+      const text = await response.text();
+      console.error("OpenAI error:", response.status, text);
       return NextResponse.json(
-        { error: "No quiz text returned from model." },
-        { status: 500 }
+        { error: "Error generating quiz questions." },
+        { status: 502 },
       );
     }
 
-    return NextResponse.json({ quiz: textOutput });
-  } catch (err: any) {
-    console.error("Error in /api/quiz:", err);
+    const data = (await response.json()) as any;
+
+    const quizText: string | undefined =
+      data.output_text ??
+      data.output?.[0]?.content?.[0]?.text ??
+      data.choices?.[0]?.message?.content;
+
+    if (!quizText) {
+      console.error("Unexpected OpenAI response shape:", data);
+      return NextResponse.json(
+        { error: "Unexpected response from AI." },
+        { status: 502 },
+      );
+    }
+
+    return NextResponse.json({ quiz: quizText });
+  } catch (err) {
+    console.error("Quiz route error:", err);
     return NextResponse.json(
-      {
-        error:
-          err?.message ||
-          "Unexpected error while generating quiz. Please try again.",
-      },
-      { status: 500 }
+      { error: "Unexpected server error." },
+      { status: 500 },
     );
   }
 }
-
