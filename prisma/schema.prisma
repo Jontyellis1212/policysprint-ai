@@ -1,0 +1,56 @@
+// prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model Organization {
+  id           String   @id @default(cuid())
+  name         String
+  industry     String?
+  country      String?
+
+  // later, when you add auth you can wire up real users
+  ownerId      String?  // raw string for now (e.g. user id / email)
+
+  policies     Policy[]
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Policy {
+  id           String   @id @default(cuid())
+  title        String
+  businessName String?
+  industry     String?
+  country      String?
+
+  // links
+  organization   Organization? @relation(fields: [organizationId], references: [id])
+  organizationId String?
+
+  // current version snapshot
+  content      String
+  version      Int      @default(1)
+
+  versions     PolicyVersion[]
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model PolicyVersion {
+  id        String   @id @default(cuid())
+  policy    Policy   @relation(fields: [policyId], references: [id])
+  policyId  String
+
+  version   Int
+  content   String
+
+  createdAt DateTime @default(now())
+}

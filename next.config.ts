@@ -1,7 +1,10 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  experimental: {
+    // Allow PDFKit to be used in App Router server routes
+    serverComponentsExternalPackages: ["pdfkit"],
+  },
 };
 
 export default nextConfig;
