@@ -1,34 +1,28 @@
 // lib/prisma.ts
 
-import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
-// better-sqlite3 doesn't ship TypeScript types by default; ignore for TS.
-// @ts-ignore
-import Database from "better-sqlite3";
+// IMPORTANT:
+// Prisma 7 CANNOT be constructed during Next.js build.
+// App Router evaluates API routes at build time.
+// We must guard against that.
 
-// Import PrismaClient via require to avoid TypeScript complaining about types.
+const isBuildTime =
+  process.env.NEXT_PHASE === "phase-production-build" ||
+  process.env.NEXT_PHASE === "phase-development-build";
+
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const { PrismaClient } = require("@prisma/client");
+const PrismaClient = !isBuildTime
+  ? require("@prisma/client").PrismaClient
+  : null;
 
-// In dev, keep a single PrismaClient instance across HMR reloads.
-// In prod (Vercel), a new client per lambda is fine.
 const globalForPrisma = globalThis as unknown as {
   prisma?: any;
 };
 
-// Create the SQLite driver instance (local dev DB file)
-// This should point to the same DB as your prisma.config.ts datasource.
-const sqlite = new Database("dev.db");
-
-// Create the Prisma adapter
-const adapter = new PrismaBetterSqlite3(sqlite);
-
-// Create the Prisma client with the adapter
 export const prisma =
-  globalForPrisma.prisma ??
-  new PrismaClient({
-    adapter,
-  });
+  isBuildTime
+    ? (null as any)
+    : globalForPrisma.prisma ?? new PrismaClient();
 
-if (process.env.NODE_ENV !== "production") {
+if (!isBuildTime && process.env.NODE_ENV !== "production") {
   globalForPrisma.prisma = prisma;
 }
