@@ -9,14 +9,19 @@
     "lint": "eslint",
     "postinstall": "prisma generate"
   },
+  "prisma": {
+    "seed": "node prisma/seed.js"
+  },
   "dependencies": {
+    "@auth/prisma-adapter": "^2.11.1",
     "@prisma/adapter-better-sqlite3": "^7.1.0",
-    "@prisma/client": "^7.1.0",
+    "@prisma/client": "^6.19.1",
+    "bcryptjs": "^3.0.3",
     "better-sqlite3": "^12.5.0",
-    "next": "^16.0.7",
+    "next": "16.0.10",
+    "next-auth": "^5.0.0-beta.30",
     "openai": "^6.9.1",
     "pdfkit": "^0.17.2",
-    "prisma": "^7.1.0",
     "react": "19.2.0",
     "react-dom": "19.2.0"
   },
@@ -27,7 +32,8 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "16.0.4",
+    "eslint-config-next": "16.0.10",
+    "prisma": "^6.19.1",
     "tailwindcss": "^4",
     "typescript": "^5"
   }
