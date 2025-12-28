@@ -7,13 +7,10 @@
   },
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
-    "start": "node -e \"console.log('DB URL host:', (process.env.DATABASE_URL||'').split('@')[1]?.split('/')[0])\" && prisma migrate deploy && next start -p ${PORT:-3000}",
+    "build": "prisma migrate deploy && next build",
+    "start": "next start -p ${PORT:-3000}",
     "lint": "eslint",
     "postinstall": "prisma generate"
-  },
-  "prisma": {
-    "seed": "node prisma/seed.js"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.1",
