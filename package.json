@@ -5,9 +5,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start",
-    "lint": "eslint",
-    "postinstall": "prisma generate"
+    "start": "prisma generate && prisma migrate deploy && next start",
+    "lint": "eslint"
   },
   "prisma": {
     "seed": "node prisma/seed.js"
