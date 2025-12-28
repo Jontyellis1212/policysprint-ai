@@ -1,6 +1,7 @@
 // app/api/policy-pdf/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import PDFDocument from "pdfkit";
+import type { PDFDocument as PDFKitDocument } from "pdfkit";
 import path from "path";
 import { readFile } from "fs/promises";
 
@@ -55,8 +56,14 @@ async function loadCoverLogoMonoWhite(): Promise<Buffer | null> {
  * COVER
  */
 function drawCover(
-  doc: PDFDocument,
-  args: { title: string; businessName: string; country: string; industry: string; monoLogo: Buffer | null }
+  doc: PDFKitDocument,
+  args: {
+    title: string;
+    businessName: string;
+    country: string;
+    industry: string;
+    monoLogo: Buffer | null;
+  }
 ) {
   const { title, businessName, country, industry, monoLogo } = args;
 
@@ -87,10 +94,18 @@ function drawCover(
     try {
       doc.image(monoLogo, left, logoY, { fit: [240, 52] });
     } catch {
-      doc.fillColor("#FFFFFF").font("Helvetica-Bold").fontSize(22).text("PolicySprint", left, logoY + 10);
+      doc
+        .fillColor("#FFFFFF")
+        .font("Helvetica-Bold")
+        .fontSize(22)
+        .text("PolicySprint", left, logoY + 10);
     }
   } else {
-    doc.fillColor("#FFFFFF").font("Helvetica-Bold").fontSize(22).text("PolicySprint", left, logoY + 10);
+    doc
+      .fillColor("#FFFFFF")
+      .font("Helvetica-Bold")
+      .fontSize(22)
+      .text("PolicySprint", left, logoY + 10);
   }
 
   doc.fillColor("#FFFFFF").font("Helvetica-Bold").fontSize(40).text(title, left, 132, { width });
@@ -119,7 +134,11 @@ function drawCover(
   if (country) metaParts.push(country);
   const meta = metaParts.join(" • ");
   if (meta) {
-    doc.fillColor("#334155").font("Helvetica").fontSize(12).text(meta, left + 22, cardY + 72, { width: width - 44 });
+    doc
+      .fillColor("#334155")
+      .font("Helvetica")
+      .fontSize(12)
+      .text(meta, left + 22, cardY + 72, { width: width - 44 });
   }
 
   const dateStr = new Date().toLocaleDateString("en-AU", {
@@ -133,10 +152,12 @@ function drawCover(
     .fillColor(muted)
     .font("Helvetica")
     .fontSize(9)
-    .text("Template only — not legal advice. Review with a qualified lawyer before adoption.", left, cardY + cardH + 18, {
-      width,
-      lineGap: 2,
-    });
+    .text(
+      "Template only — not legal advice. Review with a qualified lawyer before adoption.",
+      left,
+      cardY + cardH + 18,
+      { width, lineGap: 2 }
+    );
 }
 
 /**
@@ -148,11 +169,10 @@ const CONTENT_PANEL = {
   radius: 16,
   bottomPad: 10,
   opacity: 0.06,
-  // content inset from top of panel
   contentTopInset: 22,
 };
 
-function drawContentBackdrop(doc: PDFDocument) {
+function drawContentBackdrop(doc: PDFKitDocument) {
   const black = "#0B1220";
 
   const left = doc.page.margins.left;
@@ -171,14 +191,13 @@ function drawContentBackdrop(doc: PDFDocument) {
   doc.restore();
 }
 
-function forceContentCursor(doc: PDFDocument) {
-  // ✅ Prevent PDFKit drift on auto pages (this was your screenshot issue)
+function forceContentCursor(doc: PDFKitDocument) {
   doc.x = doc.page.margins.left;
   const targetY = CONTENT_PANEL.yTop + CONTENT_PANEL.contentTopInset;
   if (doc.y < targetY) doc.y = targetY;
 }
 
-function addTextSection(doc: PDFDocument, heading: string, body: string) {
+function addTextSection(doc: PDFKitDocument, heading: string, body: string) {
   const safe = body.trim();
   if (!safe) return;
 
@@ -192,15 +211,12 @@ function addTextSection(doc: PDFDocument, heading: string, body: string) {
   const left = doc.page.margins.left;
   const width = doc.page.width - doc.page.margins.left - doc.page.margins.right;
 
-  // Heading
   const headingY = doc.y;
   doc.rect(left, headingY + 2, 6, 20).fill(emerald);
   doc.fillColor(black).font("Helvetica-Bold").fontSize(18).text(heading, left + 16, headingY);
 
-  // Move to body start (explicit)
   doc.y = headingY + 34;
 
-  // ✅ Body text anchored to left margin explicitly (prevents drift)
   doc.fillColor(black).font("Helvetica").fontSize(11).text(safe, left, doc.y, {
     width,
     lineGap: 3,
@@ -222,10 +238,10 @@ async function renderPdfBuffer(payload: PdfPayload): Promise<Buffer> {
     size: "A4",
     margins: { top: 72, bottom: 120, left: 72, right: 72 },
     pdfVersion: "1.7",
-  });
+  }) as unknown as PDFKitDocument;
 
   const chunks: Buffer[] = [];
-  doc.on("data", (c) => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
+  doc.on("data", (c: any) => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
   const done = new Promise<Buffer>((resolve, reject) => {
     doc.on("end", () => resolve(Buffer.concat(chunks)));
     doc.on("error", reject);
@@ -233,7 +249,6 @@ async function renderPdfBuffer(payload: PdfPayload): Promise<Buffer> {
 
   let inContent = false;
 
-  // ✅ This catches PDFKit auto-flow pages
   (doc as any).on("pageAdded", () => {
     if (!inContent) return;
     drawContentBackdrop(doc);
