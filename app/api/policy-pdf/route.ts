@@ -1,7 +1,9 @@
 // app/api/policy-pdf/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import PDFDocument from "pdfkit";
-import type { PDFDocument as PDFKitDocument } from "pdfkit";
+/// <reference types="pdfkit" />
+type PDFKitDocument = PDFKit.PDFDocument;
+
 import path from "path";
 import { readFile } from "fs/promises";
 
@@ -108,26 +110,49 @@ function drawCover(
       .text("PolicySprint", left, logoY + 10);
   }
 
-  doc.fillColor("#FFFFFF").font("Helvetica-Bold").fontSize(40).text(title, left, 132, { width });
+  doc
+    .fillColor("#FFFFFF")
+    .font("Helvetica-Bold")
+    .fontSize(40)
+    .text(title, left, 132, { width });
 
   const infoY = heroH + 26;
-  doc.fillColor("#334155").font("Helvetica").fontSize(11).text("Internal policy document", left, infoY);
-  doc.fillColor(muted).font("Helvetica").fontSize(10).text("AI policy compliance", left, infoY + 18);
+  doc
+    .fillColor("#334155")
+    .font("Helvetica")
+    .fontSize(11)
+    .text("Internal policy document", left, infoY);
+  doc
+    .fillColor(muted)
+    .font("Helvetica")
+    .fontSize(10)
+    .text("AI policy compliance", left, infoY + 18);
 
   const cardY = infoY + 48;
   const cardH = 132;
 
   doc.roundedRect(left + 2, cardY + 3, width, cardH, 16).fill("#F1F5F9");
-  doc.roundedRect(left, cardY, width, cardH, 16).fill("#FFFFFF").strokeColor(border).lineWidth(1).stroke();
+  doc
+    .roundedRect(left, cardY, width, cardH, 16)
+    .fill("#FFFFFF")
+    .strokeColor(border)
+    .lineWidth(1)
+    .stroke();
   doc.rect(left, cardY, 7, cardH).fill(emerald);
 
-  doc.fillColor(muted).font("Helvetica").fontSize(10).text("PREPARED FOR", left + 22, cardY + 18);
+  doc
+    .fillColor(muted)
+    .font("Helvetica")
+    .fontSize(10)
+    .text("PREPARED FOR", left + 22, cardY + 18);
 
   doc
     .fillColor(black)
     .font("Helvetica-Bold")
     .fontSize(20)
-    .text(businessName || "—", left + 22, cardY + 40, { width: width - 44 });
+    .text(businessName || "—", left + 22, cardY + 40, {
+      width: width - 44,
+    });
 
   const metaParts: string[] = [];
   if (industry) metaParts.push(industry);
@@ -138,7 +163,9 @@ function drawCover(
       .fillColor("#334155")
       .font("Helvetica")
       .fontSize(12)
-      .text(meta, left + 22, cardY + 72, { width: width - 44 });
+      .text(meta, left + 22, cardY + 72, {
+        width: width - 44,
+      });
   }
 
   const dateStr = new Date().toLocaleDateString("en-AU", {
@@ -146,7 +173,11 @@ function drawCover(
     month: "long",
     day: "2-digit",
   });
-  doc.fillColor(muted).font("Helvetica").fontSize(10).text(`Generated: ${dateStr}`, left + 22, cardY + 102);
+  doc
+    .fillColor(muted)
+    .font("Helvetica")
+    .fontSize(10)
+    .text(`Generated: ${dateStr}`, left + 22, cardY + 102);
 
   doc
     .fillColor(muted)
@@ -161,7 +192,7 @@ function drawCover(
 }
 
 /**
- * Grey panel behind content pages (lighter, centered to margins)
+ * Grey panel behind content pages
  */
 const CONTENT_PANEL = {
   xPad: 10,
@@ -182,11 +213,17 @@ function drawContentBackdrop(doc: PDFKitDocument) {
   const panelX = left - CONTENT_PANEL.xPad;
   const panelY = CONTENT_PANEL.yTop;
   const panelW = width + CONTENT_PANEL.xPad * 2;
-  const panelH = doc.page.height - panelY - doc.page.margins.bottom - CONTENT_PANEL.bottomPad;
+  const panelH =
+    doc.page.height -
+    panelY -
+    doc.page.margins.bottom -
+    CONTENT_PANEL.bottomPad;
 
   doc.save();
   doc.fillOpacity(CONTENT_PANEL.opacity);
-  doc.roundedRect(panelX, panelY, panelW, panelH, CONTENT_PANEL.radius).fill(black);
+  doc
+    .roundedRect(panelX, panelY, panelW, panelH, CONTENT_PANEL.radius)
+    .fill(black);
   doc.fillOpacity(1);
   doc.restore();
 }
@@ -197,7 +234,11 @@ function forceContentCursor(doc: PDFKitDocument) {
   if (doc.y < targetY) doc.y = targetY;
 }
 
-function addTextSection(doc: PDFKitDocument, heading: string, body: string) {
+function addTextSection(
+  doc: PDFKitDocument,
+  heading: string,
+  body: string
+) {
   const safe = body.trim();
   if (!safe) return;
 
@@ -209,18 +250,26 @@ function addTextSection(doc: PDFKitDocument, heading: string, body: string) {
   const emerald = "#10B981";
 
   const left = doc.page.margins.left;
-  const width = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+  const width =
+    doc.page.width -
+    doc.page.margins.left -
+    doc.page.margins.right;
 
   const headingY = doc.y;
   doc.rect(left, headingY + 2, 6, 20).fill(emerald);
-  doc.fillColor(black).font("Helvetica-Bold").fontSize(18).text(heading, left + 16, headingY);
+  doc
+    .fillColor(black)
+    .font("Helvetica-Bold")
+    .fontSize(18)
+    .text(heading, left + 16, headingY);
 
   doc.y = headingY + 34;
 
-  doc.fillColor(black).font("Helvetica").fontSize(11).text(safe, left, doc.y, {
-    width,
-    lineGap: 3,
-  });
+  doc
+    .fillColor(black)
+    .font("Helvetica")
+    .fontSize(11)
+    .text(safe, left, doc.y, { width, lineGap: 3 });
 }
 
 async function renderPdfBuffer(payload: PdfPayload): Promise<Buffer> {
@@ -229,9 +278,15 @@ async function renderPdfBuffer(payload: PdfPayload): Promise<Buffer> {
   const country = s(payload.country, "");
   const industry = s(payload.industry, "");
 
-  const contentsText = normalizePreserveLines(s(payload.contentsText, ""));
-  const policyText = normalizePreserveLines(s(payload.policyText, "Policy body not provided."));
-  const disclaimerText = normalizePreserveLines(s(payload.disclaimerText, ""));
+  const contentsText = normalizePreserveLines(
+    s(payload.contentsText, "")
+  );
+  const policyText = normalizePreserveLines(
+    s(payload.policyText, "Policy body not provided.")
+  );
+  const disclaimerText = normalizePreserveLines(
+    s(payload.disclaimerText, "")
+  );
 
   const doc = new PDFDocument({
     autoFirstPage: false,
@@ -241,7 +296,10 @@ async function renderPdfBuffer(payload: PdfPayload): Promise<Buffer> {
   }) as unknown as PDFKitDocument;
 
   const chunks: Buffer[] = [];
-  doc.on("data", (c: any) => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
+  doc.on("data", (c: any) =>
+    chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c))
+  );
+
   const done = new Promise<Buffer>((resolve, reject) => {
     doc.on("end", () => resolve(Buffer.concat(chunks)));
     doc.on("error", reject);
@@ -255,12 +313,10 @@ async function renderPdfBuffer(payload: PdfPayload): Promise<Buffer> {
     forceContentCursor(doc);
   });
 
-  // cover
   doc.addPage();
   const monoLogo = await loadCoverLogoMonoWhite();
   drawCover(doc, { title, businessName, country, industry, monoLogo });
 
-  // content
   inContent = true;
   addTextSection(doc, "Contents", contentsText);
   addTextSection(doc, "Policy", policyText);
@@ -285,12 +341,19 @@ export async function POST(req: NextRequest) {
     });
   } catch (err: any) {
     return NextResponse.json(
-      { ok: false, error: "Failed to generate PDF.", detail: err?.message ?? String(err) },
+      {
+        ok: false,
+        error: "Failed to generate PDF.",
+        detail: err?.message ?? String(err),
+      },
       { status: 500 }
     );
   }
 }
 
 export async function GET() {
-  return NextResponse.json({ ok: false, error: "Method Not Allowed" }, { status: 405 });
+  return NextResponse.json(
+    { ok: false, error: "Method Not Allowed" },
+    { status: 405 }
+  );
 }
