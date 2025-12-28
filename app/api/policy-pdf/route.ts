@@ -331,7 +331,7 @@ export async function POST(req: NextRequest) {
     const payload = (await req.json()) as PdfPayload;
     const pdfBuffer = await renderPdfBuffer(payload);
 
-    return new NextResponse(pdfBuffer, {
+      return new NextResponse(pdfBuffer as unknown as BodyInit, {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
@@ -339,6 +339,7 @@ export async function POST(req: NextRequest) {
         "Cache-Control": "no-store",
       },
     });
+
   } catch (err: any) {
     return NextResponse.json(
       {
