@@ -114,7 +114,11 @@ export default function WizardPage() {
 
   const handleChange =
     (field: keyof WizardFormState) =>
-    (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+    (
+      e: React.ChangeEvent<
+        HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
+      >
+    ) => {
       setForm((prev) => ({
         ...prev,
         [field]: e.target.value,
@@ -194,7 +198,6 @@ export default function WizardPage() {
     }
   };
 
-  // 🔁 NEW: Download branded PDF via /api/policy-pdf
   const handleDownloadPdf = async () => {
     if (!result?.fullText) return;
 
@@ -243,7 +246,7 @@ export default function WizardPage() {
     }
   };
 
-  // Demo mode: auto-fill & auto-generate when ?demo=1 (read from window.location)
+  // Demo mode: auto-fill & auto-generate when ?demo=1
   useEffect(() => {
     if (demoInitialised) return;
     if (typeof window === "undefined") return;
@@ -269,13 +272,13 @@ export default function WizardPage() {
       };
 
       setForm(demoForm);
-      setStep(2); // briefly in Step 2, then go to 3 after generate
+      setStep(2);
       setDemoInitialised(true);
       void callGenerate(demoForm);
     }
   }, [demoInitialised]);
 
-  // 🔹 Derived values for saving
+  // Derived values for saving
   const policyTitleForSave =
     result?.policyPreview?.title ||
     (form.businessName
@@ -284,25 +287,54 @@ export default function WizardPage() {
 
   const fullPolicyTextForSave = result?.fullText || "";
 
+  // ---- THEME HELPERS (dark / emerald) ----
+  const card =
+    "rounded-2xl border border-slate-800 bg-slate-900/40 p-5 md:p-6 shadow-sm";
+  const label = "block text-xs font-medium text-slate-200 mb-1";
+  const hint = "text-[11px] text-slate-400";
+  const input =
+    "w-full rounded-xl border border-slate-700 bg-slate-950/60 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:ring-2 focus:ring-emerald-400/40";
+  const inputSm =
+    "w-full rounded-xl border border-slate-700 bg-slate-950/60 px-4 py-2.5 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:ring-2 focus:ring-emerald-400/40";
+  const pillBase = "rounded-full border px-3 py-1 text-[11px] transition";
+  const pillOn = "border-slate-50 bg-slate-50 text-slate-950";
+  const pillDone =
+    "border-emerald-400/30 bg-emerald-950/20 text-emerald-200";
+  const pillOff =
+    "border-slate-700 bg-slate-950/40 text-slate-200 hover:bg-slate-900/50";
+  const btnPrimary =
+    "inline-flex items-center justify-center rounded-full bg-slate-50 px-5 py-2 text-sm font-medium text-slate-950 hover:bg-slate-200 disabled:opacity-60";
+  const btnSecondary =
+    "inline-flex items-center justify-center rounded-full border border-slate-600 px-4 py-2 text-[11px] text-slate-100 hover:bg-slate-900/60 disabled:opacity-60";
+
+  // Progress vibe
+  const progressWidth = step === 1 ? "33.333%" : step === 2 ? "66.666%" : "100%";
+  const helperText =
+    step === 1
+      ? "Add business basics to tailor the draft."
+      : step === 2
+      ? "Set risk posture and allowed tools."
+      : "Copy, PDF, and save to dashboard.";
+
   return (
-    <div className="min-h-screen bg-slate-50">
-      <main className="mx-auto max-w-5xl px-4 py-6 md:py-10">
+    <main className="min-h-screen bg-slate-950 text-slate-50">
+      <div className="mx-auto max-w-5xl px-4 py-6 md:py-10">
         {/* Top bar */}
         <div className="mb-4 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <div className="flex h-7 w-7 items-center justify-center rounded-xl bg-slate-900 text-[11px] font-semibold text-white">
+            <div className="flex h-7 w-7 items-center justify-center rounded-xl bg-slate-50 text-[11px] font-semibold text-slate-950">
               PS
             </div>
             <div>
-              <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+              <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">
                 PolicySprint AI
               </div>
-              <div className="text-[13px] font-medium text-slate-900">
+              <div className="text-[13px] font-medium text-slate-100">
                 AI policy wizard
               </div>
             </div>
           </div>
-          <div className="text-right text-[11px] text-slate-500">
+          <div className="text-right text-[11px] text-slate-400">
             <div>
               {step === 1 && "Step 1 of 3 · Business basics"}
               {step === 2 && "Step 2 of 3 · Risk & rules"}
@@ -311,57 +343,67 @@ export default function WizardPage() {
           </div>
         </div>
 
-        {/* Step pills */}
-        <div className="mb-4 flex items-center gap-2 text-[11px] text-slate-600">
-          <div
-            className={`flex items-center gap-1 rounded-full border px-2 py-1 ${
-              step === 1
-                ? "border-slate-900 bg-slate-900 text-white"
-                : "border-slate-200 bg-white"
-            }`}
-          >
-            <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-current text-[10px]">
-              1
-            </span>
-            <span>Business</span>
+        {/* Progress vibe */}
+        <div className="mb-5 space-y-2">
+          <div className="h-2 w-full rounded-full bg-slate-900/60 border border-slate-800 overflow-hidden">
+            <div
+              className="h-full bg-emerald-300/90 transition-all"
+              style={{ width: progressWidth }}
+            />
           </div>
-          <div className="h-px flex-1 bg-slate-200" />
-          <div
-            className={`flex items-center gap-1 rounded-full border px-2 py-1 ${
-              step === 2
-                ? "border-slate-900 bg-slate-900 text-white"
-                : "border-slate-200 bg-white"
-            }`}
-          >
-            <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-current text-[10px]">
-              2
-            </span>
-            <span>Risk & rules</span>
+
+          <div className="flex items-center justify-between gap-2 text-[11px]">
+            <div
+              className={`flex items-center gap-2 rounded-full px-3 py-1 border ${
+                step === 1 ? pillOn : step > 1 ? pillDone : pillOff
+              }`}
+            >
+              <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-current text-[10px]">
+                1
+              </span>
+              <span>Business</span>
+            </div>
+
+            <div
+              className={`flex items-center gap-2 rounded-full px-3 py-1 border ${
+                step === 2 ? pillOn : step > 2 ? pillDone : pillOff
+              }`}
+            >
+              <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-current text-[10px]">
+                2
+              </span>
+              <span>Risk &amp; rules</span>
+            </div>
+
+            <div
+              className={`flex items-center gap-2 rounded-full px-3 py-1 border ${
+                step === 3 ? pillOn : pillOff
+              }`}
+            >
+              <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-current text-[10px]">
+                3
+              </span>
+              <span>Outputs</span>
+            </div>
           </div>
-          <div className="h-px flex-1 bg-slate-200" />
-          <div
-            className={`flex items-center gap-1 rounded-full border px-2 py-1 ${
-              step === 3
-                ? "border-slate-900 bg-slate-900 text-white"
-                : "border-slate-200 bg-white"
-            }`}
-          >
-            <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-current text-[10px]">
-              3
+
+          <div className="flex items-center justify-between text-[11px] text-slate-400">
+            <span>{helperText}</span>
+            <span className="text-slate-500">
+              {step === 1 ? "33%" : step === 2 ? "66%" : "100%"}
             </span>
-            <span>Outputs</span>
           </div>
         </div>
 
         <div className="space-y-4">
           {/* Step 1: Business basics */}
           {step === 1 && (
-            <section className="rounded-2xl border border-slate-200 bg-white p-5 md:p-6 shadow-sm space-y-4">
+            <section className={`${card} space-y-4`}>
               <div>
-                <h1 className="text-xl md:text-2xl font-semibold text-slate-900 mb-1">
+                <h1 className="text-xl md:text-2xl font-semibold text-slate-50 mb-1">
                   Tell us about your business
                 </h1>
-                <p className="text-xs md:text-sm text-slate-600 max-w-2xl">
+                <p className="text-xs md:text-sm text-slate-300 max-w-2xl">
                   We&apos;ll use this to tailor your AI Use Policy, staff guide and
                   training examples to your size, industry and how you actually use AI
                   today.
@@ -371,22 +413,18 @@ export default function WizardPage() {
               <form className="space-y-4" onSubmit={handleNextFromStep1}>
                 <div className="grid md:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-medium text-slate-700 mb-1">
-                      Business name
-                    </label>
+                    <label className={label}>Business name</label>
                     <input
-                      className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 outline-none focus:border-slate-900 focus:bg-white"
+                      className={inputSm}
                       placeholder="e.g. Bondi Physio Clinic"
                       value={form.businessName}
                       onChange={handleChange("businessName")}
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-slate-700 mb-1">
-                      Country / region
-                    </label>
+                    <label className={label}>Country / region</label>
                     <select
-                      className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 outline-none focus:border-slate-900 focus:bg-white"
+                      className={inputSm}
                       value={form.country}
                       onChange={handleChange("country")}
                     >
@@ -402,20 +440,16 @@ export default function WizardPage() {
 
                 <div className="grid md:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-medium text-slate-700 mb-1">
-                      Industry
-                    </label>
+                    <label className={label}>Industry</label>
                     <input
-                      className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 outline-none focus:border-slate-900 focus:bg-white"
+                      className={inputSm}
                       placeholder="e.g. Allied health / physiotherapy"
                       value={form.industry}
                       onChange={handleChange("industry")}
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-slate-700 mb-1">
-                      Team size
-                    </label>
+                    <label className={label}>Team size</label>
                     <div className="flex flex-wrap gap-2 text-[11px]">
                       {(Object.keys(TEAM_SIZE_LABELS) as TeamSizeOption[]).map((key) => {
                         const selected = form.teamSize === key;
@@ -429,11 +463,7 @@ export default function WizardPage() {
                                 teamSize: key,
                               }))
                             }
-                            className={`rounded-full border px-2.5 py-1.5 text-left ${
-                              selected
-                                ? "border-slate-900 bg-slate-900 text-white"
-                                : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-white"
-                            }`}
+                            className={`${pillBase} ${selected ? pillOn : pillOff} text-left`}
                           >
                             {TEAM_SIZE_LABELS[key]}
                           </button>
@@ -444,10 +474,8 @@ export default function WizardPage() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">
-                    How do you use AI today?
-                  </label>
-                  <p className="text-[11px] text-slate-500 mb-2">
+                  <label className={label}>How do you use AI today?</label>
+                  <p className={`${hint} mb-2`}>
                     Choose the options that fit, then add any extra detail. This helps us
                     shape examples and &quot;do / don&apos;t&quot; guidance.
                   </p>
@@ -460,11 +488,7 @@ export default function WizardPage() {
                           key={tag}
                           type="button"
                           onClick={() => toggleAiTag(tag)}
-                          className={`rounded-full border px-3 py-1 text-[11px] ${
-                            selected
-                              ? "border-slate-900 bg-slate-900 text-white"
-                              : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-white"
-                          }`}
+                          className={`${pillBase} ${selected ? pillOn : pillOff}`}
                         >
                           {tag}
                         </button>
@@ -473,7 +497,7 @@ export default function WizardPage() {
                   </div>
 
                   <textarea
-                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 outline-none focus:border-slate-900 focus:bg-white"
+                    className={input}
                     rows={3}
                     placeholder="e.g. Clinicians occasionally use ChatGPT to draft templates, admin team uses AI to summarise documents..."
                     value={form.aiUsageNotes}
@@ -484,14 +508,11 @@ export default function WizardPage() {
                 <div className="mt-4 flex items-center justify-between gap-3">
                   <Link
                     href="/"
-                    className="text-[11px] text-slate-500 hover:text-slate-700"
+                    className="text-[11px] text-slate-400 hover:text-slate-200"
                   >
                     ← Back to landing page
                   </Link>
-                  <button
-                    type="submit"
-                    className="inline-flex items-center justify-center rounded-full bg-slate-900 px-5 py-2 text-sm font-medium text-white hover:bg-slate-800"
-                  >
+                  <button type="submit" className={btnPrimary}>
                     Save &amp; continue to risk &amp; rules →
                   </button>
                 </div>
@@ -501,12 +522,12 @@ export default function WizardPage() {
 
           {/* Step 2: Risk & rules */}
           {step === 2 && (
-            <section className="bg-white border border-slate-200 rounded-2xl shadow-sm p-5 md:p-6 space-y-4">
+            <section className={`${card} space-y-4`}>
               <div className="mb-2">
-                <h1 className="text-xl md:text-2xl font-semibold text-slate-900 mb-1">
+                <h1 className="text-xl md:text-2xl font-semibold text-slate-50 mb-1">
                   Set your risk &amp; rules
                 </h1>
-                <p className="text-xs md:text-sm text-slate-600 max-w-2xl">
+                <p className="text-xs md:text-sm text-slate-300 max-w-2xl">
                   This shapes how strict your policy will be, what&apos;s allowed, and
                   where you draw the line. You can tweak the generated text later.
                 </p>
@@ -515,13 +536,11 @@ export default function WizardPage() {
               <form className="space-y-4" onSubmit={handleSubmitWizard}>
                 <div className="grid md:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-medium text-slate-700 mb-1">
-                      How sensitive is your data overall?
-                    </label>
+                    <label className={label}>How sensitive is your data overall?</label>
                     <div className="grid grid-cols-3 gap-2 text-[11px]">
                       {(["low", "medium", "high"] as RiskLevel[]).map((level) => {
                         const selected = form.riskLevel === level;
-                        const label =
+                        const labelTxt =
                           level === "low"
                             ? "Low (mostly public)"
                             : level === "medium"
@@ -537,13 +556,9 @@ export default function WizardPage() {
                                 riskLevel: level,
                               }))
                             }
-                            className={`rounded-full border px-2.5 py-1.5 text-left ${
-                              selected
-                                ? "border-slate-900 bg-slate-900 text-white"
-                                : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-white"
-                            }`}
+                            className={`${pillBase} ${selected ? pillOn : pillOff} text-left`}
                           >
-                            {label}
+                            {labelTxt}
                           </button>
                         );
                       })}
@@ -551,13 +566,11 @@ export default function WizardPage() {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-medium text-slate-700 mb-1">
-                      Overall posture to AI
-                    </label>
+                    <label className={label}>Overall posture to AI</label>
                     <div className="grid grid-cols-3 gap-2 text-[11px]">
                       {(["strict", "balanced", "open"] as RiskPosture[]).map((p) => {
                         const selected = form.riskPosture === p;
-                        const label =
+                        const labelTxt =
                           p === "strict"
                             ? "Strict (tight rules)"
                             : p === "balanced"
@@ -573,13 +586,9 @@ export default function WizardPage() {
                                 riskPosture: p,
                               }))
                             }
-                            className={`rounded-full border px-2.5 py-1.5 text-left ${
-                              selected
-                                ? "border-slate-900 bg-slate-900 text-white"
-                                : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-white"
-                            }`}
+                            className={`${pillBase} ${selected ? pillOn : pillOff} text-left`}
                           >
-                            {label}
+                            {labelTxt}
                           </button>
                         );
                       })}
@@ -589,14 +598,12 @@ export default function WizardPage() {
 
                 <div className="grid md:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-medium text-slate-700 mb-1">
-                      Who is allowed to use AI tools for work?
-                    </label>
-                    <div className="space-y-1 text-[11px]">
+                    <label className={label}>Who is allowed to use AI tools for work?</label>
+                    <div className="space-y-1 text-[11px] text-slate-200">
                       <label className="flex items-center gap-2">
                         <input
                           type="radio"
-                          className="h-3 w-3"
+                          className="h-3 w-3 accent-emerald-400"
                           checked={form.whoCanUse === "everyone"}
                           onChange={() =>
                             setForm((prev) => ({
@@ -610,7 +617,7 @@ export default function WizardPage() {
                       <label className="flex items-center gap-2">
                         <input
                           type="radio"
-                          className="h-3 w-3"
+                          className="h-3 w-3 accent-emerald-400"
                           checked={form.whoCanUse === "approvedRoles"}
                           onChange={() =>
                             setForm((prev) => ({
@@ -624,7 +631,7 @@ export default function WizardPage() {
                       <label className="flex items-center gap-2">
                         <input
                           type="radio"
-                          className="h-3 w-3"
+                          className="h-3 w-3 accent-emerald-400"
                           checked={form.whoCanUse === "companyToolsOnly"}
                           onChange={() =>
                             setForm((prev) => ({
@@ -639,11 +646,9 @@ export default function WizardPage() {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-medium text-slate-700 mb-1">
-                      Which AI tools are currently allowed?
-                    </label>
+                    <label className={label}>Which AI tools are currently allowed?</label>
                     <textarea
-                      className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 outline-none focus:border-slate-900 focus:bg-white"
+                      className={input}
                       placeholder={`e.g.\n“ChatGPT for internal drafts, Canva AI for marketing, no free browser plugins.”`}
                       value={form.approvedToolsText}
                       onChange={handleChange("approvedToolsText")}
@@ -652,10 +657,8 @@ export default function WizardPage() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">
-                    What are your main concerns?
-                  </label>
-                  <p className="text-[11px] text-slate-500 mb-2">
+                  <label className={label}>What are your main concerns?</label>
+                  <p className={`${hint} mb-2`}>
                     We&apos;ll emphasise these risks in your policy and staff training.
                   </p>
                   <div className="flex flex-wrap gap-2 mb-2">
@@ -666,11 +669,7 @@ export default function WizardPage() {
                           key={tag}
                           type="button"
                           onClick={() => toggleConcernTag(tag)}
-                          className={`rounded-full border px-3 py-1 text-[11px] ${
-                            selected
-                              ? "border-slate-900 bg-slate-900 text-white"
-                              : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-white"
-                          }`}
+                          className={`${pillBase} ${selected ? pillOn : pillOff}`}
                         >
                           {tag}
                         </button>
@@ -683,29 +682,25 @@ export default function WizardPage() {
                   <button
                     type="button"
                     onClick={handleBackFromStep2}
-                    className="inline-flex items-center justify-center rounded-full border border-slate-300 px-4 py-2 text-[11px] text-slate-700 hover:bg-white"
+                    className={btnSecondary}
                     disabled={loading}
                   >
                     ← Back to business details
                   </button>
 
-                  <button
-                    type="submit"
-                    disabled={loading}
-                    className="inline-flex items-center justify-center rounded-full bg-slate-900 px-5 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-60"
-                  >
+                  <button type="submit" disabled={loading} className={btnPrimary}>
                     {loading ? "Generating draft…" : "Generate draft preview →"}
                   </button>
                 </div>
 
                 {errorMessage && (
-                  <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[11px] text-red-700">
+                  <div className="mt-3 rounded-xl border border-rose-900/40 bg-rose-950/30 px-4 py-3 text-[11px] text-rose-200">
                     {errorMessage}
                   </div>
                 )}
 
                 {loading && (
-                  <p className="text-[11px] text-slate-500">
+                  <p className="text-[11px] text-slate-400">
                     Generating draft… this usually takes a moment.
                   </p>
                 )}
@@ -715,13 +710,13 @@ export default function WizardPage() {
 
           {/* Step 3: Outputs */}
           {step === 3 && result && result.success && (
-            <section className="bg-white border border-slate-200 rounded-2xl shadow-sm p-5 md:p-6 space-y-5">
+            <section className={`${card} space-y-5`}>
               <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
                 <div>
-                  <h1 className="text-xl md:text-2xl font-semibold text-slate-900 mb-1">
+                  <h1 className="text-xl md:text-2xl font-semibold text-slate-50 mb-1">
                     Your AI policy draft is ready
                   </h1>
-                  <p className="text-xs md:text-sm text-slate-600 max-w-2xl">
+                  <p className="text-xs md:text-sm text-slate-300 max-w-2xl">
                     Copy this into your own document, tweak the language, and have your
                     lawyer review it before rolling it out to staff.
                   </p>
@@ -730,21 +725,16 @@ export default function WizardPage() {
                   <button
                     type="button"
                     onClick={handleDownloadPdf}
-                    className="inline-flex items-center justify-center rounded-full border border-slate-300 px-4 py-2 text-[11px] text-slate-700 hover:bg-white disabled:opacity-60"
+                    className={btnSecondary}
                     disabled={downloadingPdf}
                   >
                     {downloadingPdf ? "Preparing PDF…" : "Download PDF"}
                   </button>
 
-                  <button
-                    type="button"
-                    onClick={handleCopy}
-                    className="inline-flex items-center justify-center rounded-full border border-slate-300 px-4 py-2 text-[11px] text-slate-700 hover:bg-white"
-                  >
+                  <button type="button" onClick={handleCopy} className={btnSecondary}>
                     {copied ? "Copied!" : "Copy full draft"}
                   </button>
 
-                  {/* 🔹 NEW: Save to dashboard */}
                   <SavePolicyButton
                     policyTitle={policyTitleForSave}
                     businessName={form.businessName}
@@ -755,29 +745,26 @@ export default function WizardPage() {
                 </div>
               </div>
 
-              {/* Summary row */}
               <div className="grid md:grid-cols-3 gap-3 text-[11px]">
-                <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-                  <div className="text-slate-500 mb-1">Business</div>
-                  <div className="font-semibold text-slate-900">
+                <div className="rounded-xl border border-slate-800 bg-slate-950/40 px-3 py-2">
+                  <div className="text-slate-400 mb-1">Business</div>
+                  <div className="font-semibold text-slate-50">
                     {form.businessName || "Your business"}
                   </div>
-                  <div className="text-slate-600">
+                  <div className="text-slate-300">
                     {form.industry || "Industry not set"}
                   </div>
                 </div>
 
-                <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-                  <div className="text-slate-500 mb-1">Region &amp; size</div>
-                  <div className="text-slate-700">{form.country}</div>
-                  <div className="text-slate-600">
-                    {TEAM_SIZE_LABELS[form.teamSize]}
-                  </div>
+                <div className="rounded-xl border border-slate-800 bg-slate-950/40 px-3 py-2">
+                  <div className="text-slate-400 mb-1">Region &amp; size</div>
+                  <div className="text-slate-200">{form.country}</div>
+                  <div className="text-slate-300">{TEAM_SIZE_LABELS[form.teamSize]}</div>
                 </div>
 
-                <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-                  <div className="text-slate-500 mb-1">AI usage focus</div>
-                  <div className="text-slate-700">
+                <div className="rounded-xl border border-slate-800 bg-slate-950/40 px-3 py-2">
+                  <div className="text-slate-400 mb-1">AI usage focus</div>
+                  <div className="text-slate-200">
                     {form.aiUsageTags.length > 0
                       ? form.aiUsageTags.join(", ")
                       : "Not specified"}
@@ -786,57 +773,57 @@ export default function WizardPage() {
               </div>
 
               <div className="grid md:grid-cols-[3fr,2fr] gap-4">
-                {/* Policy draft */}
                 <div>
                   <div className="flex items-center justify-between mb-1">
-                    <span className="text-[11px] font-medium text-slate-700">
+                    <span className="text-[11px] font-medium text-slate-200">
                       AI Use Policy draft
                     </span>
                   </div>
                   <textarea
                     readOnly
-                    className="w-full h-72 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] leading-relaxed text-slate-900"
+                    className="w-full h-72 rounded-xl border border-slate-700 bg-slate-950/60 px-4 py-3 text-[11px] leading-relaxed text-slate-100"
                     value={result.fullText || ""}
                   />
-                  <p className="mt-1 text-[10px] text-slate-500">
+                  <p className="mt-1 text-[10px] text-slate-400">
                     Tip: paste this into your letterhead or policy template, then adjust
                     tone, add references to existing policies, and get sign-off from your
                     legal or compliance advisor.
                   </p>
                 </div>
 
-                {/* Right-hand column */}
                 <div className="space-y-3 text-[11px]">
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                  <div className="rounded-xl border border-slate-800 bg-slate-950/40 px-3 py-2">
                     <div className="flex items-center justify-between mb-1">
-                      <span className="font-medium text-slate-800">Staff guide</span>
-                      <span className="rounded-full bg-emerald-100 text-emerald-700 px-2 py-0.5 text-[10px]">
+                      <span className="font-medium text-slate-100">Staff guide</span>
+                      <span className="rounded-full bg-emerald-950/40 text-emerald-200 border border-emerald-900/40 px-2 py-0.5 text-[10px]">
                         New
                       </span>
                     </div>
-                    <p className="text-slate-600 mb-2">
+                    <p className="text-slate-300 mb-2">
                       Turn this policy into a short, plain-English summary you can send to
                       your team or paste into your internal wiki.
                     </p>
                     <GenerateStaffGuideButton policyText={result.fullText || ""} />
                   </div>
 
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                  <div className="rounded-xl border border-slate-800 bg-slate-950/40 px-3 py-2">
                     <div className="flex items-center justify-between mb-1">
-                      <span className="font-medium text-slate-800">Training &amp; quiz</span>
-                      <span className="rounded-full bg-amber-100 text-amber-700 px-2 py-0.5 text-[10px]">
+                      <span className="font-medium text-slate-100">
+                        Training &amp; quiz
+                      </span>
+                      <span className="rounded-full bg-amber-950/30 text-amber-200 border border-amber-900/30 px-2 py-0.5 text-[10px]">
                         Coming soon
                       </span>
                     </div>
-                    <p className="text-slate-600">
+                    <p className="text-slate-300">
                       Simple training questions staff can answer to confirm they&apos;ve
                       read and understood your AI Use Policy.
                     </p>
                   </div>
 
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-                    <span className="font-medium text-slate-800">What&apos;s next?</span>
-                    <ul className="list-disc pl-4 mt-1 space-y-1 text-slate-600">
+                  <div className="rounded-xl border border-slate-800 bg-slate-950/40 px-3 py-2">
+                    <span className="font-medium text-slate-100">What&apos;s next?</span>
+                    <ul className="list-disc pl-4 mt-1 space-y-1 text-slate-300">
                       <li>Copy this draft into a document</li>
                       <li>Review and edit with a lawyer</li>
                       <li>Roll it out to your team</li>
@@ -846,17 +833,12 @@ export default function WizardPage() {
                 </div>
               </div>
 
-              <div className="flex items-center justify-between text-[11px] text-slate-500">
-                <button
-                  type="button"
-                  className="underline"
-                  onClick={() => setStep(2)}
-                >
+              <div className="flex items-center justify-between text-[11px] text-slate-400">
+                <button type="button" className="underline" onClick={() => setStep(2)}>
                   ← Back to adjust risk &amp; rules
                 </button>
                 <span>
-                  General templates only — always review with a qualified lawyer in your
-                  jurisdiction.
+                  General templates only — always review with a qualified lawyer.
                 </span>
               </div>
             </section>
@@ -867,7 +849,7 @@ export default function WizardPage() {
             Always review your final policy with a qualified lawyer in your jurisdiction.
           </p>
         </div>
-      </main>
-    </div>
+      </div>
+    </main>
   );
 }
