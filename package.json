@@ -5,12 +5,14 @@
   "engines": {
     "node": ">=20.9.0"
   },
-  "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "prisma generate && prisma migrate deploy && next start -p ${PORT:-3000}",
-    "lint": "eslint"
-  },
+"scripts": {
+  "dev": "next dev",
+  "build": "next build",
+  "start": "next start -p ${PORT:-3000}",
+  "lint": "eslint",
+  "postinstall": "prisma generate"
+}
+,
   "prisma": {
     "seed": "node prisma/seed.js"
   },
