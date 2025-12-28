@@ -8,7 +8,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "prisma migrate deploy && next start -p ${PORT:-3000}",
+    "start": "node -e \"console.log('DB URL host:', (process.env.DATABASE_URL||'').split('@')[1]?.split('/')[0])\" && prisma migrate deploy && next start -p ${PORT:-3000}",
     "lint": "eslint",
     "postinstall": "prisma generate"
   },
