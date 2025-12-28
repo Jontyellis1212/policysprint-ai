@@ -11,6 +11,16 @@ type SavePolicyButtonProps = {
   fullPolicyText: string;
 };
 
+type ApiOk<T> = { ok: true; data: T };
+type ApiErr = { ok: false; error: any };
+
+function isOk<T>(v: any): v is ApiOk<T> {
+  return v && typeof v === "object" && v.ok === true && "data" in v;
+}
+function isErr(v: any): v is ApiErr {
+  return v && typeof v === "object" && v.ok === false && "error" in v;
+}
+
 export function SavePolicyButton({
   policyTitle,
   businessName,
@@ -34,9 +44,7 @@ export function SavePolicyButton({
     try {
       const res = await fetch("/api/policies", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           title: policyTitle || null,
           businessName: businessName || null,
@@ -46,19 +54,38 @@ export function SavePolicyButton({
         }),
       });
 
+      const json = await res.json().catch(() => null);
+
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || "Failed to save policy");
+        // Try to extract a useful message from known shapes
+        const msg =
+          (json && typeof (json as any)?.error === "string" && (json as any).error) ||
+          (json && typeof (json as any)?.error?.message === "string" && (json as any).error.message) ||
+          (json && typeof (json as any)?.message === "string" && (json as any).message) ||
+          "Failed to save policy";
+        throw new Error(msg);
       }
 
-      const created = await res.json();
+      // Accept both shapes:
+      // 1) { id: "..." }
+      // 2) { ok: true, data: { id: "..." } }
+      const rawId =
+        (json && typeof (json as any)?.id === "string" && (json as any).id) ||
+        (json && isOk<any>(json) && typeof (json as any).data?.id === "string" ? (json as any).data.id : "");
 
-      // 🔑 After saving, go straight to the policy detail page
-      router.push(`/policies/${created.id}`);
+      const id = (rawId ?? "").trim();
+
+      if (!id || id === "undefined" || id === "null") {
+        // Saved, but we can't navigate safely — prevent /policies/undefined
+        throw new Error("Saved, but could not determine the new policy ID. Please open it from /policies.");
+      }
+
+      // After saving, go straight to the policy detail page
+      router.push(`/policies/${encodeURIComponent(id)}`);
       router.refresh();
     } catch (err: any) {
       console.error("Error saving policy:", err);
-      setError(err.message || "Failed to save policy");
+      setError(err?.message || "Failed to save policy");
     } finally {
       setSaving(false);
     }
@@ -74,11 +101,7 @@ export function SavePolicyButton({
       >
         {saving ? "Saving…" : "Save to dashboard"}
       </button>
-      {error && (
-        <p className="text-[10px] text-red-600 max-w-xs text-right">
-          {error}
-        </p>
-      )}
+      {error && <p className="text-[10px] text-red-600 max-w-xs text-right">{error}</p>}
     </div>
   );
 }

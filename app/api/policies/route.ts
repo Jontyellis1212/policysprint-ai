@@ -1,96 +1,86 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { auth } from "@/auth";
 
-// GET /api/policies – list all policies (for now, global; later filter by userId)
-export async function GET(_req: NextRequest) {
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+/**
+ * Helpers (consistent API shape)
+ */
+function ok<T>(data: T, status = 200) {
+  return NextResponse.json({ ok: true, data }, { status });
+}
+
+function fail(code: string, message: string, status: number, details?: unknown) {
+  return NextResponse.json(
+    { ok: false, error: { code, message, ...(details ? { details } : {}) } },
+    { status }
+  );
+}
+
+async function requireUserId() {
+  const session = await auth();
+  const userId = (session?.user as any)?.id as string | undefined;
+
+  if (!userId) return { ok: false as const, res: fail("UNAUTHORIZED", "Unauthorized", 401) };
+  return { ok: true as const, userId };
+}
+
+/**
+ * GET /api/policies
+ * List policies for the logged-in user only
+ */
+export async function GET() {
+  const u = await requireUserId();
+  if (!u.ok) return u.res;
+
   try {
     const policies = await prisma.policy.findMany({
-      orderBy: {
-        createdAt: "desc",
-      },
+      where: { userId: u.userId },
+      orderBy: { createdAt: "desc" },
     });
 
-    return NextResponse.json(policies);
-  } catch (error) {
-    console.error("[GET /api/policies]", error);
-    return NextResponse.json(
-      { error: "Failed to fetch policies" },
-      { status: 500 },
-    );
+    return ok(policies);
+  } catch (err) {
+    console.error("[GET /api/policies]", err);
+    return fail("INTERNAL_ERROR", "Failed to fetch policies", 500);
   }
 }
 
-// POST /api/policies – create a new policy
-export async function POST(req: NextRequest) {
+/**
+ * POST /api/policies
+ * Create a new policy owned by the logged-in user
+ */
+export async function POST(req: Request) {
+  const u = await requireUserId();
+  if (!u.ok) return u.res;
+
   try {
-    const json = await req.json();
+    const body = await req.json().catch(() => null);
 
-    const {
-      title,
-      businessName,
-      industry,
-      country,
-      content,
-      fullPolicyText,
-    }: {
-      title?: string | null;
-      businessName?: string | null;
-      industry?: string | null;
-      country?: string | null;
-      content?: string | null;
-      fullPolicyText?: string | null;
-    } = json;
-
-    // Accept either `content` or `fullPolicyText` from the client
-    const bodyContentCandidate =
-      typeof content === "string" && content.trim().length > 0
-        ? content
-        : typeof fullPolicyText === "string"
-        ? fullPolicyText
-        : "";
-
-    const bodyContent = bodyContentCandidate.trim();
-
-    if (bodyContent.length === 0) {
-      return NextResponse.json(
-        { error: "Content is required" },
-        { status: 400 },
-      );
+    if (!body || typeof body !== "object") {
+      return fail("BAD_REQUEST", "Body must be a JSON object", 400);
     }
 
-    // Build data object and avoid writing null into non-nullable fields like `title`.
-    const data: any = {
-      content: bodyContent,
-    };
-
-    // For title, fall back to a default if nothing valid is provided.
-    const finalTitle =
-      typeof title === "string" && title.trim().length > 0
-        ? title.trim()
-        : "AI Use & Governance Policy";
-
-    data.title = finalTitle;
-
-    if (businessName !== undefined && businessName !== null) {
-      data.businessName = businessName;
-    }
-    if (industry !== undefined && industry !== null) {
-      data.industry = industry;
-    }
-    if (country !== undefined && country !== null) {
-      data.country = country;
+    if (typeof (body as any)?.content !== "string" || (body as any).content.trim().length === 0) {
+      return fail("BAD_REQUEST", "Content is required", 400);
     }
 
-    const created = await prisma.policy.create({
-      data,
+    const policy = await prisma.policy.create({
+      data: {
+        userId: u.userId,
+        title: (body as any).title ?? null,
+        businessName: (body as any).businessName ?? null,
+        industry: (body as any).industry ?? null,
+        country: (body as any).country ?? null,
+        content: (body as any).content,
+      },
     });
 
-    return NextResponse.json(created, { status: 201 });
-  } catch (error) {
-    console.error("[POST /api/policies]", error);
-    return NextResponse.json(
-      { error: "Failed to create policy" },
-      { status: 500 },
-    );
+    return ok(policy, 201);
+  } catch (err) {
+    console.error("[POST /api/policies]", err);
+    return fail("INTERNAL_ERROR", "Failed to create policy", 500);
   }
 }

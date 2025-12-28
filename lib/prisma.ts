@@ -1,28 +1,17 @@
-// lib/prisma.ts
-
-// IMPORTANT:
-// Prisma 7 CANNOT be constructed during Next.js build.
-// App Router evaluates API routes at build time.
-// We must guard against that.
-
-const isBuildTime =
-  process.env.NEXT_PHASE === "phase-production-build" ||
-  process.env.NEXT_PHASE === "phase-development-build";
-
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const PrismaClient = !isBuildTime
-  ? require("@prisma/client").PrismaClient
-  : null;
+import { PrismaClient } from "@prisma/client";
 
 const globalForPrisma = globalThis as unknown as {
-  prisma?: any;
+  prisma?: PrismaClient;
 };
 
 export const prisma =
-  isBuildTime
-    ? (null as any)
-    : globalForPrisma.prisma ?? new PrismaClient();
+  globalForPrisma.prisma ??
+  new PrismaClient(
+    process.env.NODE_ENV === "development"
+      ? { log: ["error", "warn"] } // non-empty options (Prisma 7-safe)
+      : undefined // IMPORTANT: do not pass {} in Prisma 7
+  );
 
-if (!isBuildTime && process.env.NODE_ENV !== "production") {
+if (process.env.NODE_ENV !== "production") {
   globalForPrisma.prisma = prisma;
 }

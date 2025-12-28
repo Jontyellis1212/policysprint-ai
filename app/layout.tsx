@@ -17,6 +17,27 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "PolicySprint AI",
   description: "Generate AI Use Policies, staff guides and training content in minutes.",
+  icons: {
+    icon: [
+      {
+        url: "/branding/logo/policysprint-app-icon-128.png",
+        sizes: "128x128",
+        type: "image/png",
+      },
+      {
+        url: "/branding/logo/policysprint-app-icon-256.png",
+        sizes: "256x256",
+        type: "image/png",
+      },
+    ],
+    apple: [
+      {
+        url: "/branding/logo/policysprint-app-icon-512.png",
+        sizes: "512x512",
+        type: "image/png",
+      },
+    ],
+  },
 };
 
 export default function RootLayout({

@@ -1,28 +1,46 @@
 "use client";
 
-import { useEffect, useState, FormEvent } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 type Policy = {
   id: string;
-  title: string | null;
+  title: string;
   businessName: string | null;
   industry: string | null;
   country: string | null;
   content: string;
+  version: number;
   createdAt: string;
   updatedAt: string;
 };
 
-export default function EditPolicyPage() {
-  const params = useParams<{ id: string }>();
-  const router = useRouter();
-  const policyId = params?.id as string;
+type SavePayload = {
+  title: string;
+  businessName: string | null;
+  industry: string | null;
+  country: string | null;
+  content: string;
+};
 
-  const [policy, setPolicy] = useState<Policy | null>(null);
+export default function EditPolicyPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const router = useRouter();
+
+  const [id, setId] = useState<string>("");
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+
   const [error, setError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
+
+  const [original, setOriginal] = useState<Policy | null>(null);
 
   const [title, setTitle] = useState("");
   const [businessName, setBusinessName] = useState("");
@@ -30,73 +48,178 @@ export default function EditPolicyPage() {
   const [country, setCountry] = useState("");
   const [content, setContent] = useState("");
 
-  useEffect(() => {
-    if (!policyId) return;
+  // This flag lets us bypass navigation warnings when we intentionally leave
+  // (e.g., after a successful save).
+  const allowNavRef = useRef(false);
 
-    const fetchPolicy = async () => {
+  useEffect(() => {
+    let cancelled = false;
+
+    const run = async () => {
       try {
         setLoading(true);
-        const res = await fetch(`/api/policies/${policyId}`);
+        setError(null);
+        setSaveError(null);
+        setSaveSuccess(null);
 
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
-          throw new Error(data.error || "Failed to load policy");
+        const { id: rawId } = await params;
+        if (cancelled) return;
+
+        const cleanId = typeof rawId === "string" ? rawId.trim() : "";
+        // Hard guard: prevent /policies/undefined and similar bad states
+        if (!cleanId || cleanId === "undefined" || cleanId === "null") {
+          setId("");
+          throw new Error("Policy not found.");
         }
 
-        const data: Policy = await res.json();
-        setPolicy(data);
+        setId(cleanId);
 
-        setTitle(data.title ?? "");
-        setBusinessName(data.businessName ?? "");
-        setIndustry(data.industry ?? "");
-        setCountry(data.country ?? "");
-        setContent(data.content ?? "");
-      } catch (err: any) {
-        console.error(err);
-        setError(err.message || "Failed to load policy");
+        const res = await fetch(`/api/policies/${encodeURIComponent(cleanId)}`, { cache: "no-store" });
+        if (!res.ok) {
+          if (res.status === 404) throw new Error("Policy not found.");
+          throw new Error(`Failed to load policy (HTTP ${res.status}).`);
+        }
+
+        const json = await res.json();
+        const policy: Policy | undefined = json?.data;
+
+        if (!policy) throw new Error("API returned no policy data.");
+
+        if (cancelled) return;
+
+        setOriginal(policy);
+
+        setTitle(policy.title ?? "");
+        setBusinessName(policy.businessName ?? "");
+        setIndustry(policy.industry ?? "");
+        setCountry(policy.country ?? "");
+        setContent(policy.content ?? "");
+      } catch (e: any) {
+        if (!cancelled) setError(e?.message ?? "Failed to load policy.");
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
 
-    fetchPolicy();
-  }, [policyId]);
+    run();
 
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!policyId) return;
+    return () => {
+      cancelled = true;
+    };
+  }, [params]);
 
-    setSaving(true);
-    setError(null);
+  const isDirty = useMemo(() => {
+    if (!original) return false;
+
+    const normalized = (v: string | null | undefined) => (v ?? "").trim();
+
+    return (
+      normalized(title) !== normalized(original.title) ||
+      normalized(businessName) !== normalized(original.businessName) ||
+      normalized(industry) !== normalized(original.industry) ||
+      normalized(country) !== normalized(original.country) ||
+      (content ?? "") !== (original.content ?? "")
+    );
+  }, [original, title, businessName, industry, country, content]);
+
+  // Warn on refresh/close tab when there are unsaved changes.
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (allowNavRef.current) return;
+      if (!isDirty) return;
+
+      // Most browsers ignore custom text now, but setting returnValue triggers the prompt.
+      e.preventDefault();
+      e.returnValue = "";
+    };
+
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [isDirty]);
+
+  const validate = (): string | null => {
+    if (!title.trim()) return "Title is required.";
+    if (!content.trim()) return "Content is required.";
+    return null;
+  };
+
+  const toNullIfEmpty = (v: string) => {
+    const t = v.trim();
+    return t.length ? t : null;
+  };
+
+  const confirmLoseChanges = (): boolean => {
+    if (!isDirty) return true;
+    return window.confirm("You have unsaved changes. Leave without saving?");
+  };
+
+  const handleCancel = () => {
+    if (!confirmLoseChanges()) return;
+    allowNavRef.current = true;
+    router.push(id ? `/policies/${encodeURIComponent(id)}` : "/policies");
+  };
+
+  const onSave = async () => {
+    setSaveError(null);
+    setSaveSuccess(null);
+
+    const v = validate();
+    if (v) {
+      setSaveError(v);
+      return;
+    }
+
+    // Extra guard: never allow save with a bad id
+    const cleanId = (id ?? "").trim();
+    if (!cleanId || cleanId === "undefined" || cleanId === "null") {
+      setSaveError("Missing policy id.");
+      return;
+    }
+
+    const payload: SavePayload = {
+      title: title.trim(),
+      businessName: toNullIfEmpty(businessName),
+      industry: toNullIfEmpty(industry),
+      country: toNullIfEmpty(country),
+      content: content,
+    };
 
     try {
-      const res = await fetch(`/api/policies/${policyId}`, {
+      setSaving(true);
+
+      const res = await fetch(`/api/policies/${encodeURIComponent(cleanId)}`, {
         method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          title: title || null,
-          businessName: businessName || null,
-          industry: industry || null,
-          country: country || null,
-          content,
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
       });
 
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || "Failed to update policy");
+        const text = await res.text().catch(() => "");
+        throw new Error(`Save failed (HTTP ${res.status}).${text ? ` ${text}` : ""}`);
       }
 
-      const updated: Policy = await res.json();
+      const json = await res.json();
+      const updated: Policy | undefined = json?.data;
 
-      // Redirect back to the policy view
-      router.push(`/policies/${updated.id}`);
+      setSaveSuccess("Saved.");
+      if (updated) setOriginal(updated);
+
+      // Prefer returned id (if API ever changes), otherwise fall back to current id.
+      const nextId = (updated?.id ?? cleanId ?? "").trim();
+      if (!nextId || nextId === "undefined" || nextId === "null") {
+        // Do NOT navigate to /policies/undefined
+        setSaveError("Saved, but could not determine policy id to navigate. Please return to policies and reopen it.");
+        return;
+      }
+
+      // Allow navigation (we're intentionally leaving after a successful save).
+      allowNavRef.current = true;
+
+      // Send them back to the view page after a successful save
+      router.push(`/policies/${encodeURIComponent(nextId)}`);
       router.refresh();
-    } catch (err: any) {
-      console.error(err);
-      setError(err.message || "Failed to update policy");
+    } catch (e: any) {
+      setSaveError(e?.message ?? "Save failed.");
     } finally {
       setSaving(false);
     }
@@ -104,174 +227,139 @@ export default function EditPolicyPage() {
 
   if (loading) {
     return (
-      <main className="mx-auto max-w-3xl px-4 py-10">
-        <div className="space-y-4">
-          <div className="h-8 w-48 animate-pulse rounded bg-slate-200" />
-          <div className="h-4 w-64 animate-pulse rounded bg-slate-200" />
-          <div className="h-32 w-full animate-pulse rounded bg-slate-200" />
-        </div>
-      </main>
+      <div style={{ padding: 24 }}>
+        <h1 style={{ marginBottom: 8 }}>Edit Policy</h1>
+        <p>Loading…</p>
+      </div>
     );
   }
 
-  if (error || !policy) {
+  if (error) {
     return (
-      <main className="mx-auto max-w-3xl px-4 py-10">
-        <h1 className="mb-4 text-2xl font-semibold text-slate-900">
-          Edit Policy
-        </h1>
-        <p className="mb-4 text-sm text-red-600">
-          {error || "Policy not found."}
-        </p>
-        <button
-          onClick={() => router.push("/policies")}
-          className="rounded border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-        >
-          Back to all policies
-        </button>
-      </main>
+      <div style={{ padding: 24 }}>
+        <h1 style={{ marginBottom: 8 }}>Edit Policy</h1>
+        <p style={{ color: "crimson" }}>{error}</p>
+        <div style={{ marginTop: 16 }}>
+          {id ? (
+            <Link href={`/policies/${encodeURIComponent(id)}`}>Back to policy</Link>
+          ) : (
+            <Link href="/policies">Back to policies</Link>
+          )}
+        </div>
+      </div>
     );
   }
 
   return (
-    <main className="mx-auto max-w-3xl px-4 py-10">
-      <div className="mb-6">
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-          PolicySprint AI
-        </p>
-        <h1 className="mt-1 text-3xl font-semibold text-slate-900">
-          Edit Policy
-        </h1>
-        <p className="mt-2 text-sm text-slate-600">
-          Update the details of your AI Use Policy. When you’re done, save
-          changes to update the policy and keep your PDF export in sync.
-        </p>
+    <div
+      style={{
+        padding: 24,
+        maxWidth: 900,
+        margin: "0 auto",
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 16 }}>
+        <div>
+          <h1 style={{ marginBottom: 4 }}>Edit Policy</h1>
+          {original ? (
+            <p style={{ marginTop: 0, opacity: 0.8 }}>
+              ID: <code>{original.id}</code> · Version: {original.version}
+            </p>
+          ) : null}
+        </div>
+
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          {/* Cancel should confirm if there are unsaved changes */}
+          <button
+            type="button"
+            onClick={handleCancel}
+            style={{
+              padding: "8px 12px",
+              cursor: "pointer",
+              background: "transparent",
+              border: "1px solid rgba(0,0,0,0.15)",
+              borderRadius: 6,
+            }}
+          >
+            Cancel
+          </button>
+
+          <button
+            type="button"
+            onClick={onSave}
+            disabled={saving || !isDirty}
+            style={{
+              padding: "8px 12px",
+              cursor: saving || !isDirty ? "not-allowed" : "pointer",
+            }}
+            title={!isDirty ? "No changes to save" : "Save changes"}
+          >
+            {saving ? "Saving…" : "Save"}
+          </button>
+        </div>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-6">
-        {/* Meta section */}
-        <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-          <h2 className="mb-4 text-sm font-semibold text-slate-800">
-            Policy details
-          </h2>
+      {saveError ? <div style={{ marginTop: 12, color: "crimson" }}>{saveError}</div> : null}
+      {saveSuccess ? <div style={{ marginTop: 12, color: "green" }}>{saveSuccess}</div> : null}
 
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-1.5">
-              <label className="block text-xs font-medium uppercase tracking-wide text-slate-600">
-                Policy title
-              </label>
-              <input
-                type="text"
-                className="block w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 shadow-inner focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
-                placeholder="AI Use & Governance Policy"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-              />
-              <p className="text-xs text-slate-500">
-                Shown in dashboards and on PDFs.
-              </p>
-            </div>
+      <div style={{ marginTop: 20, display: "grid", gap: 12 }}>
+        <label style={{ display: "grid", gap: 6 }}>
+          <span>Title *</span>
+          <input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="e.g. Privacy Policy"
+            style={{ padding: 10 }}
+          />
+        </label>
 
-            <div className="space-y-1.5">
-              <label className="block text-xs font-medium uppercase tracking-wide text-slate-600">
-                Business name
-              </label>
-              <input
-                type="text"
-                className="block w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 shadow-inner focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
-                placeholder="Acme Pty Ltd"
-                value={businessName}
-                onChange={(e) => setBusinessName(e.target.value)}
-              />
-            </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <label style={{ display: "grid", gap: 6 }}>
+            <span>Business name</span>
+            <input
+              value={businessName}
+              onChange={(e) => setBusinessName(e.target.value)}
+              placeholder="Optional"
+              style={{ padding: 10 }}
+            />
+          </label>
 
-            <div className="space-y-1.5">
-              <label className="block text-xs font-medium uppercase tracking-wide text-slate-600">
-                Industry
-              </label>
-              <input
-                type="text"
-                className="block w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 shadow-inner focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
-                placeholder="Professional services, healthcare, education…"
-                value={industry}
-                onChange={(e) => setIndustry(e.target.value)}
-              />
-            </div>
+          <label style={{ display: "grid", gap: 6 }}>
+            <span>Industry</span>
+            <input
+              value={industry}
+              onChange={(e) => setIndustry(e.target.value)}
+              placeholder="Optional"
+              style={{ padding: 10 }}
+            />
+          </label>
 
-            <div className="space-y-1.5">
-              <label className="block text-xs font-medium uppercase tracking-wide text-slate-600">
-                Country / jurisdiction
-              </label>
-              <input
-                type="text"
-                className="block w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 shadow-inner focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
-                placeholder="Australia, EU, US…"
-                value={country}
-                onChange={(e) => setCountry(e.target.value)}
-              />
-            </div>
-          </div>
+          <label style={{ display: "grid", gap: 6 }}>
+            <span>Country</span>
+            <input
+              value={country}
+              onChange={(e) => setCountry(e.target.value)}
+              placeholder="Optional"
+              style={{ padding: 10 }}
+            />
+          </label>
         </div>
 
-        {/* Content section */}
-        <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <h2 className="text-sm font-semibold text-slate-800">
-              Policy content
-            </h2>
-            <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">
-              {content.length.toLocaleString()} characters
-            </span>
-          </div>
-
-          <p className="mb-3 text-xs text-slate-500">
-            This is the full AI Use Policy text that is saved in your database
-            and used for PDF export. You can safely edit wording, headings and
-            sections here.
-          </p>
-
+        <label style={{ display: "grid", gap: 6 }}>
+          <span>Content *</span>
           <textarea
-            className="block h-[420px] w-full resize-y rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm leading-relaxed text-slate-900 shadow-inner focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
             value={content}
             onChange={(e) => setContent(e.target.value)}
+            rows={18}
+            style={{ padding: 10, fontFamily: "inherit" }}
+            placeholder="Paste or write your policy content here…"
           />
-        </div>
+        </label>
 
-        {/* Actions */}
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="text-xs text-slate-500">
-            Last updated{" "}
-            <span className="font-medium text-slate-600">
-              {new Date(policy.updatedAt).toLocaleString()}
-            </span>
-          </div>
-
-          <div className="flex gap-3">
-            <button
-              type="button"
-              onClick={() => router.push(`/policies/${policy.id}`)}
-              className="rounded border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-              disabled={saving}
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={saving}
-              className="inline-flex items-center gap-2 rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-slate-800 disabled:opacity-70"
-            >
-              {saving ? (
-                <>
-                  <span className="h-3 w-3 animate-spin rounded-full border-2 border-white border-b-transparent" />
-                  Saving…
-                </>
-              ) : (
-                "Save changes"
-              )}
-            </button>
-          </div>
+        <div style={{ opacity: 0.8, fontSize: 14 }}>
+          <p style={{ margin: 0 }}>{isDirty ? "You have unsaved changes." : "No changes yet."}</p>
         </div>
-      </form>
-    </main>
+      </div>
+    </div>
   );
 }
