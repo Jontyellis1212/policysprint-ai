@@ -88,18 +88,7 @@ export default function HomePage() {
       </main>
 
       {/* 🔍 Railway deploy fingerprint (temporary) */}
-      <p
-        style={{
-          position: "fixed",
-          bottom: 8,
-          right: 8,
-          fontSize: 10,
-          opacity: 0.4,
-          pointerEvents: "none",
-        }}
-      >
-        Railway deploy check – v2025-01
-      </p>
+      
     </>
   );
 }
