@@ -7,8 +7,9 @@
   },
   "scripts": {
     "dev": "next dev",
-    "build": "prisma migrate deploy && next build",
+    "build": "next build",
     "start": "next start -p ${PORT:-3000}",
+    "migrate:deploy": "prisma migrate deploy",
     "lint": "eslint",
     "postinstall": "prisma generate"
   },
