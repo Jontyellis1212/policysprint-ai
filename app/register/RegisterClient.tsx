@@ -13,7 +13,7 @@ function isOk<T>(v: any): v is ApiOk<T> {
   return v && typeof v === "object" && v.ok === true && "data" in v;
 }
 
-export default function RegisterPage() {
+export default function RegisterClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const callbackUrl = searchParams.get("callbackUrl") || "/policies";
@@ -74,9 +74,7 @@ export default function RegisterPage() {
 
       if (!login || login.error) {
         setError("Account created, but auto sign-in failed. Please sign in.");
-        router.push(
-          `/login?callbackUrl=${encodeURIComponent(callbackUrl)}`
-        );
+        router.push(`/login?callbackUrl=${encodeURIComponent(callbackUrl)}`);
         return;
       }
 
@@ -91,74 +89,90 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
-      <form
-        onSubmit={onSubmit}
-        className="w-full max-w-sm bg-white border border-slate-200 rounded-xl p-6 shadow-sm"
-      >
-        <h1 className="text-xl font-semibold text-slate-900 mb-1">
-          Create account
-        </h1>
-        <p className="text-sm text-slate-600 mb-4">
-          Start generating and exporting AI policies in minutes.
-        </p>
-
-        {error ? (
-          <div className="mb-3 text-sm text-red-600">{error}</div>
-        ) : null}
-
-        <div className="space-y-3">
-          <label className="block">
-            <span className="block text-sm text-slate-700 mb-1">
-              Email
-            </span>
-            <input
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900"
-              autoComplete="email"
-            />
-          </label>
-
-          <label className="block">
-            <span className="block text-sm text-slate-700 mb-1">
-              Password
-            </span>
-            <input
-              type="password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900"
-              autoComplete="new-password"
-              minLength={8}
-            />
-            <p className="mt-1 text-xs text-slate-500">
-              Minimum 8 characters.
-            </p>
-          </label>
+    <div className="min-h-screen flex items-center justify-center bg-slate-950 px-4">
+      <div className="w-full max-w-sm">
+        {/* Brand hint */}
+        <div className="mb-6 text-center">
+          <p className="uppercase text-[11px] font-semibold tracking-[0.14em] text-slate-400">
+            PolicySprint AI
+          </p>
+          <h1 className="mt-2 text-2xl font-semibold text-slate-50">
+            Create account
+          </h1>
+          <p className="mt-1 text-sm text-slate-300">
+            Create your account — then you’ll land in your policies.
+          </p>
         </div>
 
-        <button
-          type="submit"
-          disabled={loading}
-          className="mt-4 w-full rounded-md bg-slate-900 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-60"
+        <form
+          onSubmit={onSubmit}
+          className="rounded-2xl border border-slate-800 bg-slate-900/40 backdrop-blur p-6 shadow-sm"
         >
-          {loading ? "Creating…" : "Create account"}
-        </button>
+          {error ? (
+            <div className="mb-4 rounded-xl border border-red-900/50 bg-red-950/40 px-4 py-3 text-sm text-red-200">
+              {error}
+            </div>
+          ) : null}
 
-        <p className="mt-4 text-sm text-slate-600">
-          Already have an account?{" "}
-          <Link
-            href={`/login?callbackUrl=${encodeURIComponent(callbackUrl)}`}
-            className="text-slate-900 font-medium hover:underline"
+          <div className="space-y-3">
+            <label className="block">
+              <span className="block text-sm font-medium text-slate-200 mb-1">
+                Email
+              </span>
+              <input
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                autoComplete="email"
+                placeholder="you@company.com"
+                className="w-full rounded-lg border border-slate-700 bg-slate-950/60 px-3 py-2 text-sm text-slate-50 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-400/70 focus:border-emerald-400/70"
+              />
+            </label>
+
+            <label className="block">
+              <span className="block text-sm font-medium text-slate-200 mb-1">
+                Password
+              </span>
+              <input
+                type="password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete="new-password"
+                placeholder="••••••••"
+                minLength={8}
+                className="w-full rounded-lg border border-slate-700 bg-slate-950/60 px-3 py-2 text-sm text-slate-50 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-400/70 focus:border-emerald-400/70"
+              />
+              <p className="mt-1 text-xs text-slate-500">
+                Minimum 8 characters.
+              </p>
+            </label>
+          </div>
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="mt-4 w-full rounded-lg bg-emerald-500 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
           >
-            Sign in
-          </Link>
-        </p>
-      </form>
+            {loading ? "Creating…" : "Create account"}
+          </button>
+
+          <div className="mt-4 text-sm text-slate-300">
+            Already have an account?{" "}
+            <Link
+              href={`/login?callbackUrl=${encodeURIComponent(callbackUrl)}`}
+              className="text-emerald-300 font-semibold hover:underline"
+            >
+              Sign in
+            </Link>
+          </div>
+        </form>
+
+        <div className="mt-6 text-center text-xs text-slate-500">
+          By continuing, you agree to use PolicySprint AI responsibly.
+        </div>
+      </div>
     </div>
   );
 }
