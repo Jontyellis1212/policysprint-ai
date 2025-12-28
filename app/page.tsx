@@ -87,7 +87,7 @@ export default function HomePage() {
         </div>
       </main>
 
-      {/* 🔍 Railway deploy fingerprint (temporary) */}
+     
       
     </>
   );
