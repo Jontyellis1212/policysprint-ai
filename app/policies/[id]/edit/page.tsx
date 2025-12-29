@@ -74,7 +74,10 @@ export default function EditPolicyPage({
 
         setId(cleanId);
 
-        const res = await fetch(`/api/policies/${encodeURIComponent(cleanId)}`, { cache: "no-store" });
+        const res = await fetch(
+          `/api/policies/${encodeURIComponent(cleanId)}`,
+          { cache: "no-store" }
+        );
         if (!res.ok) {
           if (res.status === 404) throw new Error("Policy not found.");
           throw new Error(`Failed to load policy (HTTP ${res.status}).`);
@@ -84,7 +87,6 @@ export default function EditPolicyPage({
         const policy: Policy | undefined = json?.data;
 
         if (!policy) throw new Error("API returned no policy data.");
-
         if (cancelled) return;
 
         setOriginal(policy);
@@ -102,7 +104,6 @@ export default function EditPolicyPage({
     };
 
     run();
-
     return () => {
       cancelled = true;
     };
@@ -128,7 +129,6 @@ export default function EditPolicyPage({
       if (allowNavRef.current) return;
       if (!isDirty) return;
 
-      // Most browsers ignore custom text now, but setting returnValue triggers the prompt.
       e.preventDefault();
       e.returnValue = "";
     };
@@ -169,7 +169,6 @@ export default function EditPolicyPage({
       return;
     }
 
-    // Extra guard: never allow save with a bad id
     const cleanId = (id ?? "").trim();
     if (!cleanId || cleanId === "undefined" || cleanId === "null") {
       setSaveError("Missing policy id.");
@@ -181,7 +180,7 @@ export default function EditPolicyPage({
       businessName: toNullIfEmpty(businessName),
       industry: toNullIfEmpty(industry),
       country: toNullIfEmpty(country),
-      content: content,
+      content,
     };
 
     try {
@@ -195,7 +194,9 @@ export default function EditPolicyPage({
 
       if (!res.ok) {
         const text = await res.text().catch(() => "");
-        throw new Error(`Save failed (HTTP ${res.status}).${text ? ` ${text}` : ""}`);
+        throw new Error(
+          `Save failed (HTTP ${res.status}).${text ? ` ${text}` : ""}`
+        );
       }
 
       const json = await res.json();
@@ -204,18 +205,15 @@ export default function EditPolicyPage({
       setSaveSuccess("Saved.");
       if (updated) setOriginal(updated);
 
-      // Prefer returned id (if API ever changes), otherwise fall back to current id.
       const nextId = (updated?.id ?? cleanId ?? "").trim();
       if (!nextId || nextId === "undefined" || nextId === "null") {
-        // Do NOT navigate to /policies/undefined
-        setSaveError("Saved, but could not determine policy id to navigate. Please return to policies and reopen it.");
+        setSaveError(
+          "Saved, but could not determine policy id to navigate. Please return to policies and reopen it."
+        );
         return;
       }
 
-      // Allow navigation (we're intentionally leaving after a successful save).
       allowNavRef.current = true;
-
-      // Send them back to the view page after a successful save
       router.push(`/policies/${encodeURIComponent(nextId)}`);
       router.refresh();
     } catch (e: any) {
@@ -225,61 +223,92 @@ export default function EditPolicyPage({
     }
   };
 
+  const Shell = ({
+    children,
+  }: {
+    children: React.ReactNode;
+  }) => (
+    <main className="min-h-screen bg-slate-950 text-slate-50">
+      <div className="max-w-4xl mx-auto px-4 pt-12 pb-16">{children}</div>
+    </main>
+  );
+
   if (loading) {
     return (
-      <div style={{ padding: 24 }}>
-        <h1 style={{ marginBottom: 8 }}>Edit Policy</h1>
-        <p>Loading…</p>
-      </div>
+      <Shell>
+        <header className="mb-8 flex items-center justify-between gap-4">
+          <div className="text-sm font-medium text-slate-200">
+            PolicySprint AI
+            <span className="ml-2 text-xs text-slate-400">
+              · Edit policy
+            </span>
+          </div>
+          <span className="text-[11px] text-slate-400">Early MVP</span>
+        </header>
+
+        <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
+          <h1 className="text-xl font-semibold tracking-tight">Edit Policy</h1>
+          <p className="mt-2 text-sm text-slate-300">Loading…</p>
+        </div>
+      </Shell>
     );
   }
 
   if (error) {
     return (
-      <div style={{ padding: 24 }}>
-        <h1 style={{ marginBottom: 8 }}>Edit Policy</h1>
-        <p style={{ color: "crimson" }}>{error}</p>
-        <div style={{ marginTop: 16 }}>
-          {id ? (
-            <Link href={`/policies/${encodeURIComponent(id)}`}>Back to policy</Link>
-          ) : (
-            <Link href="/policies">Back to policies</Link>
-          )}
+      <Shell>
+        <header className="mb-8 flex items-center justify-between gap-4">
+          <div className="text-sm font-medium text-slate-200">
+            PolicySprint AI
+            <span className="ml-2 text-xs text-slate-400">
+              · Edit policy
+            </span>
+          </div>
+          <span className="text-[11px] text-slate-400">Early MVP</span>
+        </header>
+
+        <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
+          <h1 className="text-xl font-semibold tracking-tight">Edit Policy</h1>
+
+          <div className="mt-3 rounded-xl border border-rose-900/40 bg-rose-950/30 p-4 text-sm text-rose-200">
+            {error}
+          </div>
+
+          <div className="mt-5 text-sm">
+            {id ? (
+              <Link
+                className="text-emerald-300 hover:text-emerald-200"
+                href={`/policies/${encodeURIComponent(id)}`}
+              >
+                Back to policy
+              </Link>
+            ) : (
+              <Link
+                className="text-emerald-300 hover:text-emerald-200"
+                href="/policies"
+              >
+                Back to policies
+              </Link>
+            )}
+          </div>
         </div>
-      </div>
+      </Shell>
     );
   }
 
   return (
-    <div
-      style={{
-        padding: 24,
-        maxWidth: 900,
-        margin: "0 auto",
-      }}
-    >
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 16 }}>
-        <div>
-          <h1 style={{ marginBottom: 4 }}>Edit Policy</h1>
-          {original ? (
-            <p style={{ marginTop: 0, opacity: 0.8 }}>
-              ID: <code>{original.id}</code> · Version: {original.version}
-            </p>
-          ) : null}
+    <Shell>
+      <header className="mb-8 flex items-center justify-between gap-4">
+        <div className="text-sm font-medium text-slate-200">
+          PolicySprint AI
+          <span className="ml-2 text-xs text-slate-400">· Edit policy</span>
         </div>
 
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          {/* Cancel should confirm if there are unsaved changes */}
+        <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={handleCancel}
-            style={{
-              padding: "8px 12px",
-              cursor: "pointer",
-              background: "transparent",
-              border: "1px solid rgba(0,0,0,0.15)",
-              borderRadius: 6,
-            }}
+            className="inline-flex items-center justify-center rounded-full border border-slate-600 px-4 py-2 text-sm text-slate-100 hover:bg-slate-900/60"
           >
             Cancel
           </button>
@@ -288,78 +317,133 @@ export default function EditPolicyPage({
             type="button"
             onClick={onSave}
             disabled={saving || !isDirty}
-            style={{
-              padding: "8px 12px",
-              cursor: saving || !isDirty ? "not-allowed" : "pointer",
-            }}
             title={!isDirty ? "No changes to save" : "Save changes"}
+            className={[
+              "inline-flex items-center justify-center rounded-full px-4 py-2 text-sm font-medium",
+              saving || !isDirty
+                ? "bg-slate-700 text-slate-300 cursor-not-allowed"
+                : "bg-slate-50 text-slate-950 hover:bg-slate-200",
+            ].join(" ")}
           >
             {saving ? "Saving…" : "Save"}
           </button>
         </div>
-      </div>
+      </header>
 
-      {saveError ? <div style={{ marginTop: 12, color: "crimson" }}>{saveError}</div> : null}
-      {saveSuccess ? <div style={{ marginTop: 12, color: "green" }}>{saveSuccess}</div> : null}
-
-      <div style={{ marginTop: 20, display: "grid", gap: 12 }}>
-        <label style={{ display: "grid", gap: 6 }}>
-          <span>Title *</span>
-          <input
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="e.g. Privacy Policy"
-            style={{ padding: 10 }}
-          />
-        </label>
-
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <label style={{ display: "grid", gap: 6 }}>
-            <span>Business name</span>
-            <input
-              value={businessName}
-              onChange={(e) => setBusinessName(e.target.value)}
-              placeholder="Optional"
-              style={{ padding: 10 }}
-            />
-          </label>
-
-          <label style={{ display: "grid", gap: 6 }}>
-            <span>Industry</span>
-            <input
-              value={industry}
-              onChange={(e) => setIndustry(e.target.value)}
-              placeholder="Optional"
-              style={{ padding: 10 }}
-            />
-          </label>
-
-          <label style={{ display: "grid", gap: 6 }}>
-            <span>Country</span>
-            <input
-              value={country}
-              onChange={(e) => setCountry(e.target.value)}
-              placeholder="Optional"
-              style={{ padding: 10 }}
-            />
-          </label>
+      <section className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
+        <div className="flex flex-col gap-1">
+          <h1 className="text-2xl font-semibold tracking-tight">Edit Policy</h1>
+          {original ? (
+            <p className="text-[11px] text-slate-400">
+              ID: <span className="font-mono">{original.id}</span> · Version:{" "}
+              {original.version}
+              {isDirty ? (
+                <span className="ml-2 text-amber-200">· Unsaved changes</span>
+              ) : (
+                <span className="ml-2 text-slate-500">· Up to date</span>
+              )}
+            </p>
+          ) : null}
         </div>
 
-        <label style={{ display: "grid", gap: 6 }}>
-          <span>Content *</span>
-          <textarea
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            rows={18}
-            style={{ padding: 10, fontFamily: "inherit" }}
-            placeholder="Paste or write your policy content here…"
-          />
-        </label>
+        {saveError ? (
+          <div className="mt-4 rounded-xl border border-rose-900/40 bg-rose-950/30 p-4 text-sm text-rose-200">
+            {saveError}
+          </div>
+        ) : null}
 
-        <div style={{ opacity: 0.8, fontSize: 14 }}>
-          <p style={{ margin: 0 }}>{isDirty ? "You have unsaved changes." : "No changes yet."}</p>
+        {saveSuccess ? (
+          <div className="mt-4 rounded-xl border border-emerald-900/40 bg-emerald-950/20 p-4 text-sm text-emerald-200">
+            {saveSuccess}
+          </div>
+        ) : null}
+
+        <div className="mt-6 grid gap-4">
+          <label className="grid gap-2">
+            <span className="text-sm text-slate-200">
+              Title <span className="text-rose-300">*</span>
+            </span>
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="e.g. AI Use Policy"
+              className="w-full rounded-xl border border-slate-700 bg-slate-950/60 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
+            />
+          </label>
+
+          <div className="grid gap-4 md:grid-cols-3">
+            <label className="grid gap-2">
+              <span className="text-sm text-slate-200">Business name</span>
+              <input
+                value={businessName}
+                onChange={(e) => setBusinessName(e.target.value)}
+                placeholder="Optional"
+                className="w-full rounded-xl border border-slate-700 bg-slate-950/60 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
+              />
+            </label>
+
+            <label className="grid gap-2">
+              <span className="text-sm text-slate-200">Industry</span>
+              <input
+                value={industry}
+                onChange={(e) => setIndustry(e.target.value)}
+                placeholder="Optional"
+                className="w-full rounded-xl border border-slate-700 bg-slate-950/60 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
+              />
+            </label>
+
+            <label className="grid gap-2">
+              <span className="text-sm text-slate-200">Country</span>
+              <input
+                value={country}
+                onChange={(e) => setCountry(e.target.value)}
+                placeholder="Optional"
+                className="w-full rounded-xl border border-slate-700 bg-slate-950/60 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
+              />
+            </label>
+          </div>
+
+          <label className="grid gap-2">
+            <span className="text-sm text-slate-200">
+              Content <span className="text-rose-300">*</span>
+            </span>
+            <textarea
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              rows={18}
+              placeholder="Paste or write your policy content here…"
+              className="w-full rounded-xl border border-slate-700 bg-slate-950/60 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
+            />
+          </label>
+
+          <div className="flex items-center justify-between text-[11px] text-slate-400">
+            <span>
+              {isDirty ? "You have unsaved changes." : "No changes yet."}
+            </span>
+
+            {id ? (
+              <Link
+                className="text-emerald-300 hover:text-emerald-200"
+                href={`/policies/${encodeURIComponent(id)}`}
+                onClick={(e) => {
+                  if (!confirmLoseChanges()) e.preventDefault();
+                }}
+              >
+                View policy
+              </Link>
+            ) : (
+              <Link className="text-emerald-300 hover:text-emerald-200" href="/policies">
+                Back to policies
+              </Link>
+            )}
+          </div>
         </div>
-      </div>
-    </div>
+      </section>
+
+      <footer className="mt-8 text-[11px] text-slate-500">
+        PolicySprint AI does not provide legal advice. Always have a qualified
+        lawyer review any policy before use.
+      </footer>
+    </Shell>
   );
 }

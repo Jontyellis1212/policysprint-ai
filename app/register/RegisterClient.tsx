@@ -30,8 +30,8 @@ export default function RegisterClient() {
     setLoading(true);
 
     try {
-      // 1) Create account
-      const res = await fetch("/api/auth/register", {
+      // 1) Create account (CORRECT ENDPOINT)
+      const res = await fetch("/api/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
@@ -91,7 +91,6 @@ export default function RegisterClient() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-950 px-4">
       <div className="w-full max-w-sm">
-        {/* Brand hint */}
         <div className="mb-6 text-center">
           <p className="uppercase text-[11px] font-semibold tracking-[0.14em] text-slate-400">
             PolicySprint AI
