@@ -7,6 +7,7 @@ type PDFKitDocument = PDFKit.PDFDocument;
 import path from "path";
 import { readFile } from "fs/promises";
 import { auth } from "@/auth";
+import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
 
@@ -318,17 +319,29 @@ async function renderPdfBuffer(payload: PdfPayload): Promise<Buffer> {
 }
 
 export async function POST(req: NextRequest) {
-  // 🔐 AUTH GUARD (reliable shape: email)
+  // 1) Must be signed in
   const session = await auth();
   const email = (session?.user as any)?.email as string | undefined;
 
-  // This log line proves whether the guard is running in prod.
   console.log("[policy-pdf] request", { authed: !!email });
 
   if (!email) {
+    return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+  }
+
+  // 2) Must be upgraded
+  const user = await prisma.user.findUnique({
+    where: { email },
+    select: { plan: true },
+  });
+
+  const plan = user?.plan ?? "free";
+  console.log("[policy-pdf] entitlement", { email, plan });
+
+  if (plan !== "pro") {
     return NextResponse.json(
-      { ok: false, error: "Unauthorized" },
-      { status: 401 }
+      { ok: false, error: "Upgrade required" },
+      { status: 403 }
     );
   }
 
@@ -357,8 +370,5 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET() {
-  return NextResponse.json(
-    { ok: false, error: "Method Not Allowed" },
-    { status: 405 }
-  );
+  return NextResponse.json({ ok: false, error: "Method Not Allowed" }, { status: 405 });
 }
