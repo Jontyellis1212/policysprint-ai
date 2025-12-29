@@ -6,6 +6,7 @@ type PDFKitDocument = PDFKit.PDFDocument;
 
 import path from "path";
 import { readFile } from "fs/promises";
+import { auth } from "@/auth";
 
 export const runtime = "nodejs";
 
@@ -327,11 +328,22 @@ async function renderPdfBuffer(payload: PdfPayload): Promise<Buffer> {
 }
 
 export async function POST(req: NextRequest) {
+  // 🔐 AUTH GUARD
+  const session = await auth();
+  const userId = (session?.user as any)?.id;
+
+  if (!userId) {
+    return NextResponse.json(
+      { ok: false, error: "Unauthorized" },
+      { status: 401 }
+    );
+  }
+
   try {
     const payload = (await req.json()) as PdfPayload;
     const pdfBuffer = await renderPdfBuffer(payload);
 
-      return new NextResponse(pdfBuffer as unknown as BodyInit, {
+    return new NextResponse(pdfBuffer as unknown as BodyInit, {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
@@ -339,7 +351,6 @@ export async function POST(req: NextRequest) {
         "Cache-Control": "no-store",
       },
     });
-
   } catch (err: any) {
     return NextResponse.json(
       {
