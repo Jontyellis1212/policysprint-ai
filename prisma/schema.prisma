@@ -31,6 +31,9 @@ model User {
 
   passwordHash  String?
 
+  // ✅ Step 1: upgrade flag (free vs pro)
+  plan          String    @default("free") // "free" | "pro"
+
   accounts      Account[]
   sessions      Session[]
 
