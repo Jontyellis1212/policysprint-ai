@@ -235,11 +235,7 @@ function forceContentCursor(doc: PDFKitDocument) {
   if (doc.y < targetY) doc.y = targetY;
 }
 
-function addTextSection(
-  doc: PDFKitDocument,
-  heading: string,
-  body: string
-) {
+function addTextSection(doc: PDFKitDocument, heading: string, body: string) {
   const safe = body.trim();
   if (!safe) return;
 
@@ -252,9 +248,7 @@ function addTextSection(
 
   const left = doc.page.margins.left;
   const width =
-    doc.page.width -
-    doc.page.margins.left -
-    doc.page.margins.right;
+    doc.page.width - doc.page.margins.left - doc.page.margins.right;
 
   const headingY = doc.y;
   doc.rect(left, headingY + 2, 6, 20).fill(emerald);
@@ -279,15 +273,11 @@ async function renderPdfBuffer(payload: PdfPayload): Promise<Buffer> {
   const country = s(payload.country, "");
   const industry = s(payload.industry, "");
 
-  const contentsText = normalizePreserveLines(
-    s(payload.contentsText, "")
-  );
+  const contentsText = normalizePreserveLines(s(payload.contentsText, ""));
   const policyText = normalizePreserveLines(
     s(payload.policyText, "Policy body not provided.")
   );
-  const disclaimerText = normalizePreserveLines(
-    s(payload.disclaimerText, "")
-  );
+  const disclaimerText = normalizePreserveLines(s(payload.disclaimerText, ""));
 
   const doc = new PDFDocument({
     autoFirstPage: false,
@@ -328,11 +318,14 @@ async function renderPdfBuffer(payload: PdfPayload): Promise<Buffer> {
 }
 
 export async function POST(req: NextRequest) {
-  // 🔐 AUTH GUARD
+  // 🔐 AUTH GUARD (reliable shape: email)
   const session = await auth();
-  const userId = (session?.user as any)?.id;
+  const email = (session?.user as any)?.email as string | undefined;
 
-  if (!userId) {
+  // This log line proves whether the guard is running in prod.
+  console.log("[policy-pdf] request", { authed: !!email });
+
+  if (!email) {
     return NextResponse.json(
       { ok: false, error: "Unauthorized" },
       { status: 401 }
