@@ -27,15 +27,17 @@ export async function POST() {
       );
     }
 
-    // Look for an active/trialing subscription
+    // Fetch subscriptions for this customer
     const subs = await stripe.subscriptions.list({
       customer: user.stripeCustomerId,
       status: "all",
       limit: 10,
     });
 
-    const active = subs.data.find((s) => s.status === "active" || s.status === "trialing") ?? null;
+    const active =
+      subs.data.find((s) => s.status === "active" || s.status === "trialing") ?? null;
 
+    // No active subscription → downgrade safely
     if (!active) {
       await prisma.user.update({
         where: { id: userId },
@@ -51,10 +53,14 @@ export async function POST() {
       return NextResponse.json({ ok: true, plan: "free" });
     }
 
-    const priceId = active.items?.data?.[0]?.price?.id ?? null;
-    const currentPeriodEnd = active.current_period_end
-      ? new Date(active.current_period_end * 1000)
-      : null;
+    // ✅ Stripe period fields live on the SUBSCRIPTION ITEM (not subscription)
+    const item = active.items?.data?.[0] ?? null;
+
+    const priceId = item?.price?.id ?? null;
+    const currentPeriodEnd =
+      item?.current_period_end != null
+        ? new Date(item.current_period_end * 1000)
+        : null;
 
     await prisma.user.update({
       where: { id: userId },
