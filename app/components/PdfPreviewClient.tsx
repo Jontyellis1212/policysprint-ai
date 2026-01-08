@@ -1,64 +1,114 @@
-// app/components/PdfPreviewClient.tsx
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useRef } from "react";
+import * as pdfjsLib from "pdfjs-dist";
+import type { PDFDocumentProxy } from "pdfjs-dist/types/src/display/api";
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
 
 type Props = {
   blobUrl: string | null;
-  className?: string;
-  height?: number; // default 520
-  showWatermark?: boolean; // optional overlay watermark (UI only)
+  loading?: boolean;
+  error?: string | null;
+  height?: number;
 };
 
 export default function PdfPreviewClient({
   blobUrl,
-  className,
+  loading = false,
+  error = null,
   height = 520,
-  showWatermark = true,
 }: Props) {
-  // Hide built-in PDF viewer UI as much as Chromium allows.
-  // Note: this does NOT “secure” the PDF — it just removes most buttons.
-  const iframeSrc = useMemo(() => {
-    if (!blobUrl) return null;
+  const containerRef = useRef<HTMLDivElement | null>(null);
 
-    // Chrome PDF viewer supports most of these.
-    // toolbar=0 removes toolbar, navpanes=0 removes left panes.
-    // view=FitH tends to look nicer in an embedded pane.
-    return `${blobUrl}#toolbar=0&navpanes=0&scrollbar=1&view=FitH`;
+  useEffect(() => {
+    let cancelled = false;
+    let pdf: PDFDocumentProxy | null = null;
+
+    async function render() {
+      if (!blobUrl || !containerRef.current) return;
+
+      containerRef.current.innerHTML = "";
+
+      const loadingTask = pdfjsLib.getDocument(blobUrl);
+      pdf = await loadingTask.promise;
+
+      if (cancelled) return;
+
+      for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+        const page = await pdf.getPage(pageNum);
+
+        const viewport = page.getViewport({ scale: 1.2 });
+        const canvas = document.createElement("canvas");
+        const ctx = canvas.getContext("2d");
+
+        if (!ctx) continue;
+
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        canvas.style.display = "block";
+        canvas.style.margin = "0 auto 16px auto";
+
+        await page.render({ canvasContext: ctx, viewport }).promise;
+
+        if (cancelled) return;
+
+        containerRef.current.appendChild(canvas);
+      }
+    }
+
+    render();
+
+    return () => {
+      cancelled = true;
+      if (pdf) {
+        try {
+          pdf.destroy();
+        } catch {}
+      }
+    };
   }, [blobUrl]);
+
+  // ---- UI states ----
+
+  if (loading) {
+    return (
+      <div
+        style={{ height }}
+        className="flex items-center justify-center text-sm text-slate-500"
+      >
+        Generating preview…
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div
+        style={{ height }}
+        className="flex items-center justify-center text-sm text-red-600"
+      >
+        {error}
+      </div>
+    );
+  }
+
+  if (!blobUrl) {
+    return (
+      <div
+        style={{ height }}
+        className="flex items-center justify-center text-sm text-slate-400"
+      >
+        Preview will appear here
+      </div>
+    );
+  }
 
   return (
     <div
-      className={[
-        "relative w-full min-w-0 overflow-hidden rounded-lg border border-slate-800 bg-black/20",
-        className || "",
-      ].join(" ")}
+      ref={containerRef}
       style={{ height }}
-    >
-      {!iframeSrc ? (
-        <div className="h-full w-full flex items-center justify-center text-[11px] text-slate-400">
-          Preview will appear here.
-        </div>
-      ) : (
-        <>
-          {/* The PDF itself */}
-          <iframe
-            title="PDF preview"
-            src={iframeSrc}
-            className="h-full w-full bg-white"
-          />
-
-          {/* Optional overlay watermark (UI only).
-              Your server PDF already has a watermark too — this just reinforces it. */}
-          {showWatermark ? (
-            <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-              <div className="select-none rotate-[-18deg] text-slate-400/15 font-black text-5xl md:text-6xl tracking-wide">
-                PREVIEW
-              </div>
-            </div>
-          ) : null}
-        </>
-      )}
-    </div>
+      className="overflow-y-auto rounded border border-slate-200 bg-white"
+    />
   );
 }
