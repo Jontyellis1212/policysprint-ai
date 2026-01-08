@@ -39,6 +39,7 @@ export default function PdfPreviewClient({
         const page = await pdf.getPage(pageNum);
 
         const viewport = page.getViewport({ scale: 1.2 });
+
         const canvas = document.createElement("canvas");
         const ctx = canvas.getContext("2d");
 
@@ -49,7 +50,12 @@ export default function PdfPreviewClient({
         canvas.style.display = "block";
         canvas.style.margin = "0 auto 16px auto";
 
-        await page.render({ canvasContext: ctx, viewport }).promise;
+        // ✅ pdfjs-dist v5 requires BOTH canvas + canvasContext
+        await page.render({
+          canvas,
+          canvasContext: ctx,
+          viewport,
+        }).promise;
 
         if (cancelled) return;
 
@@ -68,8 +74,6 @@ export default function PdfPreviewClient({
       }
     };
   }, [blobUrl]);
-
-  // ---- UI states ----
 
   if (loading) {
     return (
