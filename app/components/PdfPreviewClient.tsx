@@ -1,10 +1,6 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import * as pdfjsLib from "pdfjs-dist";
-import type { PDFDocumentProxy } from "pdfjs-dist/types/src/display/api";
-
-pdfjsLib.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
 
 type Props = {
   blobUrl: string | null;
@@ -23,26 +19,30 @@ export default function PdfPreviewClient({
 
   useEffect(() => {
     let cancelled = false;
-    let pdf: PDFDocumentProxy | null = null;
+    let pdf: any = null;
 
     async function render() {
       if (!blobUrl || !containerRef.current) return;
 
+      // ⛔ Clear previous preview
       containerRef.current.innerHTML = "";
 
-      const loadingTask = pdfjsLib.getDocument(blobUrl);
+      // ✅ Lazy-load pdfjs ONLY in the browser
+      const pdfjsLib = await import("pdfjs-dist");
+      const workerSrc = "/pdf.worker.min.mjs";
+      (pdfjsLib as any).GlobalWorkerOptions.workerSrc = workerSrc;
+
+      const loadingTask = (pdfjsLib as any).getDocument(blobUrl);
       pdf = await loadingTask.promise;
 
       if (cancelled) return;
 
       for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
         const page = await pdf.getPage(pageNum);
-
         const viewport = page.getViewport({ scale: 1.2 });
 
         const canvas = document.createElement("canvas");
         const ctx = canvas.getContext("2d");
-
         if (!ctx) continue;
 
         canvas.width = viewport.width;
@@ -50,7 +50,6 @@ export default function PdfPreviewClient({
         canvas.style.display = "block";
         canvas.style.margin = "0 auto 16px auto";
 
-        // ✅ pdfjs-dist v5 requires BOTH canvas + canvasContext
         await page.render({
           canvas,
           canvasContext: ctx,
@@ -67,11 +66,9 @@ export default function PdfPreviewClient({
 
     return () => {
       cancelled = true;
-      if (pdf) {
-        try {
-          pdf.destroy();
-        } catch {}
-      }
+      try {
+        pdf?.destroy?.();
+      } catch {}
     };
   }, [blobUrl]);
 
