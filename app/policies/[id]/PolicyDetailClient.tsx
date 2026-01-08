@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 type Policy = {
@@ -109,6 +109,7 @@ export default function PolicyDetailClient({
   const [deleting, setDeleting] = useState(false);
   const [duplicating, setDuplicating] = useState(false);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
+  const [previewingPdf, setPreviewingPdf] = useState(false);
 
   const [selectedVersion, setSelectedVersion] = useState<PolicyVersion | null>(null);
   const [restoringVersionId, setRestoringVersionId] = useState<string | null>(null);
@@ -118,8 +119,12 @@ export default function PolicyDetailClient({
 
   const [previewMode, setPreviewMode] = useState<"text" | "diff">("text");
 
-  // NEW: PDF locked banner state
+  // Paywall banner state (download only)
   const [pdfLocked, setPdfLocked] = useState<PdfLockedState>(null);
+
+  // Preview modal state
+  const [pdfPreviewOpen, setPdfPreviewOpen] = useState(false);
+  const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
 
   const pushToast = (type: Toast["type"], message: string, ms = 3500) => {
     const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -134,6 +139,19 @@ export default function PolicyDetailClient({
     const cb = `${basePath}/${encodeURIComponent(policy.id)}`;
     router.replace(`/login?callbackUrl=${encodeURIComponent(cb)}`);
   };
+
+  const closePreview = () => {
+    setPdfPreviewOpen(false);
+    if (pdfPreviewUrl) URL.revokeObjectURL(pdfPreviewUrl);
+    setPdfPreviewUrl(null);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (pdfPreviewUrl) URL.revokeObjectURL(pdfPreviewUrl);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleDelete = async () => {
     const confirmed = window.confirm(
@@ -187,22 +205,71 @@ export default function PolicyDetailClient({
     }
   };
 
+  const makePdfPayload = () => ({
+    businessName: policy.businessName ?? "",
+    country: policy.country ?? "",
+    industry: policy.industry ?? "",
+    policyText: policy.content,
+  });
+
+  const handlePreviewPdf = async () => {
+    try {
+      setPreviewingPdf(true);
+
+      // Close any previous preview
+      closePreview();
+
+      const res = await fetch("/api/policy-pdf", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-pdf-mode": "preview",
+        },
+        body: JSON.stringify(makePdfPayload()),
+      });
+
+      if (res.status === 401) {
+        redirectToLogin();
+        return;
+      }
+
+      const contentType = (res.headers.get("content-type") || "").toLowerCase();
+      if (!res.ok) {
+        if (contentType.includes("application/json")) {
+          const j = await res.json().catch(() => null);
+          const msg =
+            (typeof (j as any)?.error?.message === "string" && (j as any).error.message) ||
+            (typeof (j as any)?.error === "string" && (j as any).error) ||
+            (typeof (j as any)?.message === "string" && (j as any).message) ||
+            "Failed to generate PDF preview.";
+          pushToast("error", msg);
+          return;
+        }
+        const txt = await res.text().catch(() => "");
+        pushToast("error", txt?.trim() ? `Failed to generate PDF preview: ${txt.slice(0, 180)}` : "Failed to generate PDF preview.");
+        return;
+      }
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      setPdfPreviewUrl(url);
+      setPdfPreviewOpen(true);
+    } catch (e: any) {
+      pushToast("error", e?.message || "Something went wrong generating the preview.");
+    } finally {
+      setPreviewingPdf(false);
+    }
+  };
+
   const handleDownloadPdf = async () => {
     try {
       setDownloadingPdf(true);
       setPdfLocked(null);
 
-      const payload = {
-        businessName: policy.businessName ?? "",
-        country: policy.country ?? "",
-        industry: policy.industry ?? "",
-        policyText: policy.content,
-      };
-
       const res = await fetch("/api/policy-pdf", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(makePdfPayload()),
       });
 
       if (res.status === 401) {
@@ -212,7 +279,7 @@ export default function PolicyDetailClient({
 
       const contentType = (res.headers.get("content-type") || "").toLowerCase();
 
-      const tryReadJsonError = async () => {
+      const readJsonError = async () => {
         try {
           const j = await res.json();
           const msg =
@@ -224,56 +291,46 @@ export default function PolicyDetailClient({
             (typeof (j as any)?.error?.code === "string" && (j as any).error.code) ||
             (typeof (j as any)?.code === "string" && (j as any).code) ||
             "";
-          return { msg, code, raw: j };
+          return { msg, code };
         } catch {
-          return { msg: "", code: "", raw: null };
+          return { msg: "", code: "" };
         }
       };
 
-      // 1) Explicit paywall/forbidden
-      if (res.status === 403) {
-        const { msg } = contentType.includes("application/json") ? await tryReadJsonError() : { msg: "" };
+      const showPaywall = (msg?: string) => {
         setPdfLocked({
-          title: "Unlock PDF export",
+          title: "PDF download is a Pro feature",
           message:
             msg ||
-            "Download a polished, share-ready PDF of this policy. Upgrade to enable PDF export for your account.",
+            "Preview the PDF for free. Upgrade to Pro to download the final, share-ready PDF without the preview watermark.",
         });
-        return;
-      }
+      };
 
-      // 2) JSON => not a PDF (handle locked + other errors)
       if (contentType.includes("application/json")) {
-        const { msg, code } = await tryReadJsonError();
-
-        const looksLocked =
-          res.status === 403 ||
-          code.toUpperCase() === "FORBIDDEN" ||
-          code.toUpperCase() === "PDF_LOCKED" ||
-          /locked|pro|waitlist|forbidden|upgrade/i.test(msg);
-
-        if (looksLocked) {
-          setPdfLocked({
-            title: "Unlock PDF export",
-            message:
-              msg ||
-              "Download a polished, share-ready PDF of this policy. Upgrade to enable PDF export for your account.",
-          });
+        const { msg, code } = await readJsonError();
+        if (res.status === 403 && code.toUpperCase() === "PRO_REQUIRED") {
+          showPaywall(msg);
           return;
         }
-
-        pushToast("error", msg || "Failed to generate PDF.");
+        if (!res.ok) {
+          pushToast("error", msg || "Failed to generate PDF.");
+          return;
+        }
+        pushToast("error", "Unexpected response while generating the PDF.");
         return;
       }
 
-      // 3) Non-ok + non-json => show server text
+      if (res.status === 403) {
+        showPaywall();
+        return;
+      }
+
       if (!res.ok) {
         const txt = await res.text().catch(() => "");
         pushToast("error", txt?.trim() ? `Failed to generate PDF: ${txt.slice(0, 180)}` : "Failed to generate PDF.");
         return;
       }
 
-      // 4) OK + non-json => assume PDF
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
 
@@ -370,38 +427,67 @@ export default function PolicyDetailClient({
         </div>
       ) : null}
 
+      {/* Preview modal */}
+      {pdfPreviewOpen ? (
+        <div className="fixed inset-0 z-50">
+          <div className="absolute inset-0 bg-black/50" onClick={closePreview} />
+          <div className="absolute inset-0 flex items-center justify-center p-4">
+            <div className="w-full max-w-5xl h-[85vh] rounded-2xl bg-white shadow-xl border border-slate-200 overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
+                <div>
+                  <p className="text-sm font-semibold text-slate-900">PDF preview</p>
+                  <p className="text-xs text-slate-500">This is a watermarked preview. Upgrade to download the final PDF.</p>
+                </div>
+                <div className="flex gap-2">
+                  <a
+                    href="/pricing"
+                    className="px-3 py-1.5 rounded-full bg-slate-900 text-xs font-medium text-white hover:bg-slate-800"
+                  >
+                    Upgrade to Pro
+                  </a>
+                  <button
+                    onClick={closePreview}
+                    className="px-3 py-1.5 rounded-full border border-slate-300 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+
+              <div className="w-full h-full bg-slate-50">
+                {pdfPreviewUrl ? (
+                  <iframe title="PDF preview" src={pdfPreviewUrl} className="w-full h-full" />
+                ) : (
+                  <div className="p-6 text-sm text-slate-700">Loading preview…</div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <main className="mx-auto max-w-4xl px-4 py-10">
-        {/* PDF locked banner */}
+        {/* Download paywall banner */}
         {pdfLocked ? (
           <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-900 shadow-sm">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <p className="text-sm font-semibold">{pdfLocked.title}</p>
                 <p className="mt-1 text-sm text-amber-900/90">{pdfLocked.message}</p>
-                <p className="mt-2 text-xs text-amber-900/70">
-                  Want access without upgrading? Email us and we’ll help you out.
-                </p>
               </div>
 
               <div className="flex gap-2">
                 <a
                   href="/pricing"
-                  className="px-3 py-1.5 rounded-full border border-amber-300 bg-white text-xs font-medium text-amber-900 hover:bg-amber-100"
-                >
-                  See plans
-                </a>
-                <a
-                  href="mailto:hello@policysprint.ai?subject=PolicySprint%20AI%20PDF%20Export%20Access&body=Hi%20there%2C%0D%0A%0D%0AI%27d%20like%20access%20to%20PDF%20export.%0D%0A%0D%0ABusiness%20name%3A%0D%0AIndustry%3A%0D%0AStaff%20count%3A%0D%0A%0D%0AThanks!"
                   className="px-3 py-1.5 rounded-full bg-amber-500 text-xs font-medium text-slate-950 hover:bg-amber-400"
                 >
-                  Email for access
+                  Upgrade to Pro
                 </a>
                 <button
                   onClick={() => setPdfLocked(null)}
                   className="px-3 py-1.5 rounded-full border border-amber-300 bg-white text-xs font-medium text-amber-900 hover:bg-amber-100"
-                  title="Dismiss"
                 >
-                  Close
+                  Dismiss
                 </button>
               </div>
             </div>
@@ -426,7 +512,6 @@ export default function PolicyDetailClient({
           </div>
 
           <div className="flex flex-wrap gap-2">
-            {/* NOTE: Edit is still on /policies for now (even if viewing under /dashboard). */}
             <button
               onClick={() => router.push(`/policies/${policy.id}/edit`)}
               className="px-3 py-1.5 rounded-full border border-slate-300 text-xs font-medium text-slate-700 hover:bg-white bg-slate-50"
@@ -440,6 +525,14 @@ export default function PolicyDetailClient({
               className="px-3 py-1.5 rounded-full border border-slate-300 text-xs font-medium text-slate-700 hover:bg-white bg-slate-50 disabled:opacity-60"
             >
               {duplicating ? "Duplicating…" : "Duplicate"}
+            </button>
+
+            <button
+              onClick={handlePreviewPdf}
+              disabled={previewingPdf}
+              className="px-3 py-1.5 rounded-full border border-slate-300 text-xs font-medium text-slate-700 hover:bg-white bg-slate-50 disabled:opacity-60"
+            >
+              {previewingPdf ? "Preparing preview…" : "Preview PDF"}
             </button>
 
             <button
@@ -472,7 +565,7 @@ export default function PolicyDetailClient({
           </div>
 
           <p className="text-[11px] text-slate-500 mt-2">
-            This is your saved version. You can edit, duplicate, delete, or export a PDF.
+            This is your saved version. You can edit, duplicate, delete, preview the PDF, or upgrade to download it.
           </p>
         </section>
 

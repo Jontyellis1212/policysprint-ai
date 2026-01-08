@@ -1,4 +1,4 @@
-// app/api/policy-pdf/route.ts
+// app/api/policy-pdf/preview/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import PDFDocument from "pdfkit";
 /// <reference types="pdfkit" />
@@ -6,8 +6,6 @@ type PDFKitDocument = PDFKit.PDFDocument;
 
 import path from "path";
 import { readFile } from "fs/promises";
-import { auth } from "@/auth";
-import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -32,6 +30,8 @@ function normalizePreserveLines(raw: string): string {
     .replace(/\r/g, "\n")
     .replace(/\f/g, "")
     .replace(/\u000c/g, "")
+    .replace(/\u2028/g, "\n")
+    .replace(/\u2029/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
@@ -58,8 +58,7 @@ async function loadCoverLogoMonoWhite(): Promise<Buffer | null> {
 }
 
 /**
- * Reset text style after watermark/cover rendering.
- * (PDFKit save/restore is not guaranteed to restore font/fontSize reliably.)
+ * Reset text style
  */
 function resetDefaultTextStyle(doc: PDFKitDocument) {
   doc.fillOpacity(1);
@@ -69,7 +68,7 @@ function resetDefaultTextStyle(doc: PDFKitDocument) {
 }
 
 /**
- * COVER (Option C: Hybrid)
+ * COVER (match download: Option C hybrid)
  */
 function drawCover(
   doc: PDFKitDocument,
@@ -187,7 +186,6 @@ function drawCover(
 
   doc.fillColor(muted).font("Helvetica").fontSize(10).text(`Generated: ${dateStr}`, left + 20, cardY + 96);
 
-  // ✅ FIX: keep this note INSIDE the printable area so it doesn't spill onto a new page
   const footerFontSize = 9;
   const coverFooterY = doc.page.height - doc.page.margins.bottom - footerFontSize - 8;
 
@@ -206,7 +204,7 @@ function drawCover(
 }
 
 /**
- * Grey panel behind content pages
+ * CONTENT PANEL — match download
  */
 const CONTENT_PANEL = {
   xPad: 10,
@@ -242,12 +240,10 @@ function forceContentCursor(doc: PDFKitDocument) {
 }
 
 /**
- * Watermark for preview mode
- * IMPORTANT: must not move doc.x/doc.y.
+ * PREVIEW WATERMARK (must not move doc.x/doc.y)
  */
 function drawPreviewWatermark(doc: PDFKitDocument) {
   const text = "PREVIEW — Upgrade to download";
-
   const prevX = doc.x;
   const prevY = doc.y;
 
@@ -271,7 +267,7 @@ function drawPreviewWatermark(doc: PDFKitDocument) {
 }
 
 /**
- * Section header (premium + consistent)
+ * Section header (match download)
  */
 function drawSectionHeader(doc: PDFKitDocument, heading: string, variant: "first" | "continued") {
   const ink = "#0B1220";
@@ -309,6 +305,18 @@ function drawSectionHeader(doc: PDFKitDocument, heading: string, variant: "first
   resetDefaultTextStyle(doc);
 }
 
+/**
+ * Bold numbered section heading lines like "1. Purpose" / "2) Scope"
+ */
+function isNumberedSectionHeadingLine(line: string): boolean {
+  const t = line.trim();
+  if (!t) return false;
+  return /^\d+[\.\)]\s+\S+/.test(t);
+}
+
+/**
+ * ---------- Manual paginator (preview limited) ----------
+ */
 function splitIntoParagraphs(text: string): string[] {
   const t = normalizePreserveLines(text);
   if (!t) return [];
@@ -318,102 +326,77 @@ function splitIntoParagraphs(text: string): string[] {
     .filter(Boolean);
 }
 
-function clampMaxPages(
-  doc: PDFKitDocument,
-  state: { totalPages: number },
-  maxTotalPages: number,
-  sectionName: string
-) {
-  if (state.totalPages >= maxTotalPages) {
-    const left = doc.page.margins.left;
-    const width = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+type PageCtx = { pages: number; maxPages: number };
 
-    doc.moveDown(0.6);
-    doc
-      .fillColor("#64748B")
-      .font("Helvetica-Oblique")
-      .fontSize(9)
-      .text(
-        `Content truncated to keep the PDF readable. (${sectionName} exceeded the page limit.)`,
-        left,
-        doc.y,
-        { width, lineGap: 2 }
-      );
-    resetDefaultTextStyle(doc);
-    return true;
-  }
-  return false;
+function contentBottom(doc: PDFKitDocument) {
+  return doc.page.height - doc.page.margins.bottom;
 }
 
-function isNumberedSectionHeadingLine(line: string): boolean {
-  const t = line.trim();
-  if (!t) return false;
-  return /^\d+[\.\)]\s+\S+/.test(t);
+function addContentPage(doc: PDFKitDocument, ctx: PageCtx) {
+  doc.addPage();
+  ctx.pages += 1;
+
+  drawContentBackdrop(doc);
+  forceContentCursor(doc);
+  resetDefaultTextStyle(doc);
+  drawPreviewWatermark(doc);
 }
 
-function renderLine(doc: PDFKitDocument, line: string, left: number, width: number, lineGap: number) {
+function ensureSpaceOrNewPage(doc: PDFKitDocument, ctx: PageCtx, neededHeight: number) {
+  const bottomY = contentBottom(doc);
+  if (doc.y + neededHeight <= bottomY) return true;
+
+  if (ctx.pages >= ctx.maxPages) return false;
+  addContentPage(doc, ctx);
+  return true;
+}
+
+function writeLine(doc: PDFKitDocument, line: string, width: number, lineGap: number) {
+  const left = doc.page.margins.left;
+
   if (isNumberedSectionHeadingLine(line)) {
     doc.font("Helvetica-Bold").text(line, left, doc.y, { width, lineGap });
     doc.font("Helvetica");
     return;
   }
+
   doc.font("Helvetica").text(line, left, doc.y, { width, lineGap });
 }
 
-function writeBodyPaged(
+function writeBodyPreviewPaged(
   doc: PDFKitDocument,
+  ctx: PageCtx,
   body: string,
-  opts: {
-    sectionName: string;
-    mode: "download" | "preview";
-    state: { totalPages: number };
-    maxTotalPages: number;
-    maxSectionPages: number;
-  }
-) {
-  const left = doc.page.margins.left;
+  sectionName: string,
+  opts: { firstPageAlreadyHasHeader: boolean }
+): { stoppedEarly: boolean } {
   const width = doc.page.width - doc.page.margins.left - doc.page.margins.right;
-  const bottomY = doc.page.height - doc.page.margins.bottom;
+  const bottomY = contentBottom(doc);
 
   const paragraphs = splitIntoParagraphs(body);
-  if (paragraphs.length === 0) return;
+  if (paragraphs.length === 0) return { stoppedEarly: false };
 
   const bodyFontSize = 10;
   const lineGap = 2;
 
   doc.fillColor("#0B1220").font("Helvetica").fontSize(bodyFontSize);
 
-  let sectionPages = 1;
+  // ✅ IMPORTANT FIX:
+  // If the caller already drew the big "first" header on this page, do NOT draw the "continued" header too.
+  let firstOnThisSectionPage = !opts.firstPageAlreadyHasHeader;
 
-  const newContentPage = () => {
-    doc.addPage();
-    opts.state.totalPages += 1;
-    sectionPages += 1;
-
-    if (clampMaxPages(doc, opts.state, opts.maxTotalPages, opts.sectionName)) return false;
-    if (sectionPages > opts.maxSectionPages) {
-      doc
-        .fillColor("#64748B")
-        .font("Helvetica-Oblique")
-        .fontSize(9)
-        .text(
-          `Content truncated to keep the PDF readable. (${opts.sectionName} exceeded the section page limit.)`,
-          left,
-          doc.y,
-          { width, lineGap: 2 }
-        );
-      resetDefaultTextStyle(doc);
-      return false;
-    }
-
-    drawContentBackdrop(doc);
-    forceContentCursor(doc);
-    resetDefaultTextStyle(doc);
-
-    if (opts.mode === "preview") drawPreviewWatermark(doc);
-
-    drawSectionHeader(doc, opts.sectionName, "continued");
+  const ensureHeaderIfNeeded = () => {
+    if (!firstOnThisSectionPage) return;
+    drawSectionHeader(doc, sectionName, "continued");
     doc.fillColor("#0B1220").font("Helvetica").fontSize(bodyFontSize);
+    firstOnThisSectionPage = false;
+  };
+
+  const newSectionPage = () => {
+    if (ctx.pages >= ctx.maxPages) return false;
+    addContentPage(doc, ctx);
+    firstOnThisSectionPage = true; // new page needs the continued header
+    ensureHeaderIfNeeded();
     return true;
   };
 
@@ -424,16 +407,18 @@ function writeBodyPaged(
     for (let j = 0; j < lines.length; j++) {
       const line = lines[j];
 
+      ensureHeaderIfNeeded();
+
       const h = doc.heightOfString(line || " ", { width, lineGap });
       if (doc.y + h > bottomY) {
-        const ok = newContentPage();
-        if (!ok) return;
+        const ok = newSectionPage();
+        if (!ok) return { stoppedEarly: true };
       }
 
       if (line.trim() === "") {
         doc.moveDown(0.6);
       } else {
-        renderLine(doc, line, left, width, lineGap);
+        writeLine(doc, line, width, lineGap);
       }
     }
 
@@ -443,90 +428,12 @@ function writeBodyPaged(
   }
 
   resetDefaultTextStyle(doc);
+  return { stoppedEarly: false };
 }
 
-function addSection(
-  doc: PDFKitDocument,
-  heading: string,
-  body: string,
-  opts: {
-    mode: "download" | "preview";
-    state: { totalPages: number };
-    maxTotalPages: number;
-    maxSectionPages: number;
-  }
-) {
-  const safe = normalizePreserveLines(body);
-  if (!safe) return;
-
-  doc.addPage();
-  opts.state.totalPages += 1;
-
-  drawContentBackdrop(doc);
-  forceContentCursor(doc);
-  resetDefaultTextStyle(doc);
-
-  if (opts.mode === "preview") drawPreviewWatermark(doc);
-
-  drawSectionHeader(doc, heading, "first");
-
-  writeBodyPaged(doc, safe, {
-    sectionName: heading,
-    mode: opts.mode,
-    state: opts.state,
-    maxTotalPages: opts.maxTotalPages,
-    maxSectionPages: opts.maxSectionPages,
-  });
-}
-
-/**
- * Footers (draw inside printable area)
- */
-function drawFootersWithTotalPages(doc: PDFKitDocument) {
-  const range = (doc as any).bufferedPageRange?.() as { start: number; count: number } | undefined;
-  if (!range || typeof (doc as any).switchToPage !== "function") return;
-
-  const ink = "#0B1220";
-  const muted = "#64748B";
-
-  const total = range.count;
-  for (let i = range.start; i < range.start + range.count; i++) {
-    (doc as any).switchToPage(i);
-
-    const isCover = i === range.start;
-    if (isCover) continue;
-
-    const left = doc.page.margins.left;
-    const right = doc.page.width - doc.page.margins.right;
-
-    const footerFontSize = 9;
-    const y = doc.page.height - doc.page.margins.bottom - footerFontSize - 8;
-
-    doc.save();
-    doc.fillOpacity(1);
-    doc.fillColor(muted);
-    doc.font("Helvetica").fontSize(footerFontSize);
-
-    doc
-      .strokeOpacity(0.12)
-      .strokeColor(ink)
-      .lineWidth(1)
-      .moveTo(left, y - 10)
-      .lineTo(right, y - 10)
-      .stroke();
-
-    const pageNum = i - range.start;
-    doc.text(`Page ${pageNum} of ${total - 1}`, left, y, { width: right - left, align: "right" });
-
-    doc.restore();
-  }
-
-  (doc as any).switchToPage(range.start + range.count - 1);
-}
-
-async function renderPdfBuffer(payload: PdfPayload, mode: "download" | "preview"): Promise<Buffer> {
+async function renderPreviewPdfBuffer(payload: PdfPayload): Promise<Buffer> {
   const title = s(payload.title, "AI Use Policy");
-  const businessName = s(payload.businessName, "PolicySprint AI");
+  const businessName = s(payload.businessName, "Your business");
   const country = s(payload.country, "");
   const industry = s(payload.industry, "");
 
@@ -534,15 +441,11 @@ async function renderPdfBuffer(payload: PdfPayload, mode: "download" | "preview"
   const policyText = normalizePreserveLines(s(payload.policyText, "Policy body not provided."));
   const disclaimerText = normalizePreserveLines(s(payload.disclaimerText, ""));
 
-  const MAX_TOTAL_PAGES = 18;
-  const MAX_SECTION_PAGES = 10;
-
   const doc = new PDFDocument({
     autoFirstPage: false,
     size: "A4",
     margins: { top: 64, bottom: 110, left: 64, right: 64 },
     pdfVersion: "1.7",
-    bufferPages: true,
   }) as unknown as PDFKitDocument;
 
   const chunks: Buffer[] = [];
@@ -553,131 +456,99 @@ async function renderPdfBuffer(payload: PdfPayload, mode: "download" | "preview"
     doc.on("error", reject);
   });
 
-  let inContent = false;
-  const state = { totalPages: 0 };
-
-  (doc as any).on("pageAdded", () => {
-    if (inContent) {
-      drawContentBackdrop(doc);
-      forceContentCursor(doc);
-      resetDefaultTextStyle(doc);
-    }
-    if (mode === "preview") {
-      drawPreviewWatermark(doc);
-    }
-  });
-
-  // Cover page
+  // Cover (watermarked)
   doc.addPage();
-  state.totalPages += 1;
   const monoLogo = await loadCoverLogoMonoWhite();
   drawCover(doc, { title, businessName, country, industry, monoLogo });
+  drawPreviewWatermark(doc);
 
-  if (mode === "preview") {
-    drawPreviewWatermark(doc);
-  } else {
-    resetDefaultTextStyle(doc);
-  }
+  // Content pages (preview limited)
+  const ctx: PageCtx = { pages: 0, maxPages: 4 };
 
-  // Content pages
-  inContent = true;
+  // Contents
+  if (contentsText.trim().length > 0) {
+    addContentPage(doc, ctx);
+    drawSectionHeader(doc, "Contents", "first");
 
-  const canAddMore = () => state.totalPages < MAX_TOTAL_PAGES;
-
-  if (canAddMore()) {
-    addSection(doc, "Contents", contentsText, {
-      mode,
-      state,
-      maxTotalPages: MAX_TOTAL_PAGES,
-      maxSectionPages: MAX_SECTION_PAGES,
+    const r = writeBodyPreviewPaged(doc, ctx, contentsText, "Contents", {
+      firstPageAlreadyHasHeader: true,
     });
-  }
-  if (canAddMore()) {
-    addSection(doc, "Policy", policyText, {
-      mode,
-      state,
-      maxTotalPages: MAX_TOTAL_PAGES,
-      maxSectionPages: MAX_SECTION_PAGES,
-    });
-  }
-  if (canAddMore()) {
-    addSection(doc, "Disclaimer", disclaimerText, {
-      mode,
-      state,
-      maxTotalPages: MAX_TOTAL_PAGES,
-      maxSectionPages: MAX_SECTION_PAGES,
-    });
+    if (r.stoppedEarly) {
+      doc.end();
+      return done;
+    }
   }
 
-  drawFootersWithTotalPages(doc);
+  // Policy
+  if (ctx.pages === 0) addContentPage(doc, ctx);
+  drawSectionHeader(doc, "Policy", "first");
+
+  const rPolicy = writeBodyPreviewPaged(doc, ctx, policyText, "Policy", {
+    firstPageAlreadyHasHeader: true,
+  });
+
+  // Disclaimer only if we didn’t truncate
+  if (!rPolicy.stoppedEarly && disclaimerText.trim().length > 0) {
+    drawSectionHeader(doc, "Disclaimer", "first");
+    const rDisc = writeBodyPreviewPaged(doc, ctx, disclaimerText, "Disclaimer", {
+      firstPageAlreadyHasHeader: true,
+    });
+    if (rDisc.stoppedEarly) {
+      doc.end();
+      return done;
+    }
+  }
+
+  // Truncation notice (only if we stopped early)
+  if (rPolicy.stoppedEarly) {
+    const left = doc.page.margins.left;
+    const width = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+
+    const msgTitle = "Preview truncated";
+    doc.fillColor("#0B1220").font("Helvetica-Bold").fontSize(16);
+    const h = doc.heightOfString(msgTitle, { width });
+
+    if (!ensureSpaceOrNewPage(doc, ctx, h + 80)) {
+      // no space/no pages left
+    } else {
+      doc.text(msgTitle, left, doc.y, { width });
+      doc.y += 8;
+
+      doc.fillColor("#334155").font("Helvetica").fontSize(11);
+      doc.text(
+        "Free accounts can preview the first few pages. Upgrade to download the full PDF export.",
+        left,
+        doc.y,
+        { width, lineGap: 3 }
+      );
+    }
+  }
 
   doc.end();
   return done;
 }
 
 export async function POST(req: NextRequest) {
-  const session = await auth();
-  const email = (session?.user as any)?.email as string | undefined;
-
-  if (!email) {
-    return NextResponse.json(
-      { ok: false, error: { code: "UNAUTHORIZED", message: "Unauthorized" } },
-      { status: 401 }
-    );
-  }
-
-  const modeHeader = (req.headers.get("x-pdf-mode") || "").toLowerCase();
-  const mode: "download" | "preview" = modeHeader === "preview" ? "preview" : "download";
-
-  if (mode === "download") {
-    const user = await prisma.user.findUnique({
-      where: { email },
-      select: { plan: true },
-    });
-
-    const plan = user?.plan ?? "free";
-    if (plan !== "pro") {
-      return NextResponse.json(
-        { ok: false, error: { code: "PRO_REQUIRED", message: "Upgrade required" } },
-        { status: 403 }
-      );
-    }
-  }
-
   try {
     const payload = (await req.json()) as PdfPayload;
-    const pdfBuffer = await renderPdfBuffer(payload, mode);
-
-    const filename = `policy-${Date.now()}.pdf`;
-    const disposition = mode === "preview" ? "inline" : "attachment";
+    const pdfBuffer = await renderPreviewPdfBuffer(payload);
 
     return new NextResponse(pdfBuffer as unknown as BodyInit, {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `${disposition}; filename="${filename}"`,
+        "Content-Disposition": `inline; filename="policy-preview.pdf"`,
         "Cache-Control": "no-store",
       },
     });
   } catch (err: any) {
-    console.error("[policy-pdf] Failed to generate", err);
     return NextResponse.json(
-      {
-        ok: false,
-        error: {
-          code: "PDF_GENERATION_FAILED",
-          message: "Failed to generate PDF.",
-          details: err?.message ?? String(err),
-        },
-      },
+      { ok: false, error: "Failed to generate preview.", detail: err?.message ?? String(err) },
       { status: 500 }
     );
   }
 }
 
 export async function GET() {
-  return NextResponse.json(
-    { ok: false, error: { code: "METHOD_NOT_ALLOWED", message: "Method Not Allowed" } },
-    { status: 405 }
-  );
+  return NextResponse.json({ ok: false, error: "Method Not Allowed" }, { status: 405 });
 }

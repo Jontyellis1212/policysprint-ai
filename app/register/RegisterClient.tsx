@@ -13,10 +13,33 @@ function isOk<T>(v: any): v is ApiOk<T> {
   return v && typeof v === "object" && v.ok === true && "data" in v;
 }
 
+// Only allow safe, internal callback URLs
+function sanitizeCallbackUrl(raw: string | null, fallback: string) {
+  if (!raw) return fallback;
+
+  // must be a relative path
+  if (!raw.startsWith("/")) return fallback;
+
+  // prevent protocol-relative //evil.com
+  if (raw.startsWith("//")) return fallback;
+
+  // prevent weird "javascript:" style (shouldn't happen with startsWith("/"), but keep it defensive)
+  if (raw.includes("://")) return fallback;
+
+  return raw;
+}
+
 export default function RegisterClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const callbackUrl = searchParams.get("callbackUrl") || "/policies";
+
+  // ✅ NEW: send new users to the themed dashboard by default
+  const defaultAfterSignup = "/dashboard/policies";
+
+  const callbackUrl = sanitizeCallbackUrl(
+    searchParams.get("callbackUrl"),
+    defaultAfterSignup
+  );
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -30,7 +53,7 @@ export default function RegisterClient() {
     setLoading(true);
 
     try {
-      // 1) Create account (CORRECT ENDPOINT)
+      // 1) Create account
       const res = await fetch("/api/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -78,7 +101,7 @@ export default function RegisterClient() {
         return;
       }
 
-      // 3) Go to app
+      // 3) Go to app (themed default)
       router.push(callbackUrl);
       router.refresh();
     } catch (err: any) {
@@ -99,7 +122,7 @@ export default function RegisterClient() {
             Create account
           </h1>
           <p className="mt-1 text-sm text-slate-300">
-            Create your account — then you’ll land in your policies.
+            Create your account — then you’ll land in your dashboard.
           </p>
         </div>
 

@@ -1,39 +1,89 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@/auth";
+import { prisma } from "@/lib/prisma";
 
-export async function POST(req: Request) {
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+// ---------- response helpers ----------
+function ok<T>(data: T, status = 200) {
+  return NextResponse.json({ ok: true, data }, { status });
+}
+
+function fail(code: string, message: string, status: number, details?: unknown) {
+  return NextResponse.json(
+    { ok: false, error: { code, message, ...(details ? { details } : {}) } },
+    { status }
+  );
+}
+
+async function requireUserId() {
+  const session = await auth();
+  const userId = (session?.user as any)?.id as string | undefined;
+  if (!userId) return { ok: false as const, res: fail("UNAUTHORIZED", "Unauthorized", 401) };
+  return { ok: true as const, userId };
+}
+
+async function requireProPlan(userId: string) {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { plan: true },
+  });
+
+  if (!user) {
+    return { ok: false as const, res: fail("UNAUTHORIZED", "Unauthorized", 401) };
+  }
+
+  const plan = user.plan ?? "free";
+  if (plan !== "pro") {
+    return {
+      ok: false as const,
+      res: fail("PRO_REQUIRED", "Upgrade required", 403, { plan }),
+    };
+  }
+
+  return { ok: true as const };
+}
+
+type Body = {
+  organisationName?: string;
+  audienceDescription?: string;
+  policyText?: string;
+};
+
+export async function POST(req: NextRequest) {
+  // 1) Must be signed in
+  const u = await requireUserId();
+  if (!u.ok) return u.res;
+
+  // 2) Must be Pro
+  const ent = await requireProPlan(u.userId);
+  if (!ent.ok) return ent.res;
+
+  // 3) Validate body
+  let body: Body | null = null;
   try {
-    const body = await req.json();
-    const {
-      organisationName,
-      audienceDescription,
-      policyText,
-    }: {
-      organisationName?: string;
-      audienceDescription?: string;
-      policyText?: string;
-    } = body;
+    body = (await req.json()) as Body;
+  } catch {
+    return fail("BAD_REQUEST", "Invalid JSON body", 400);
+  }
 
-    if (!policyText || typeof policyText !== "string") {
-      return NextResponse.json(
-        { error: "Missing or invalid policyText" },
-        { status: 400 }
-      );
-    }
+  const { organisationName, audienceDescription, policyText } = body ?? {};
+  if (!policyText || typeof policyText !== "string") {
+    return fail("BAD_REQUEST", "Missing or invalid policyText", 400);
+  }
 
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) {
-      return NextResponse.json(
-        { error: "OPENAI_API_KEY is not configured on the server." },
-        { status: 500 }
-      );
-    }
+  // 4) Env
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    return fail("SERVER_MISCONFIG", "OPENAI_API_KEY is not configured on the server.", 500);
+  }
 
-    const orgName = organisationName || "the organisation";
-    const audience =
-      audienceDescription ||
-      "Non-technical staff who use AI tools as part of their work";
+  const orgName = organisationName || "the organisation";
+  const audience =
+    audienceDescription || "Non-technical staff who use AI tools as part of their work";
 
-    const systemPrompt = `
+  const systemPrompt = `
 You help organisations turn formal AI Use Policies into clear, practical staff guides.
 
 Write in:
@@ -50,9 +100,9 @@ The goal is for staff to quickly understand:
 - Realistic examples of good and bad use
 
 Avoid legalese and long paragraphs.
-    `.trim();
+  `.trim();
 
-    const userPrompt = `
+  const userPrompt = `
 Organisation: ${orgName}
 
 Staff audience:
@@ -69,8 +119,10 @@ Please produce a guide that:
 - Summarises key rules in bullet points
 - Includes a "If you're not sure, do this" section
 - Uses simple language and clear examples
-    `.trim();
+  `.trim();
 
+  // 5) Call OpenAI
+  try {
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -89,24 +141,24 @@ Please produce a guide that:
 
     if (!response.ok) {
       const error = await response.json().catch(() => null);
-      console.error("OpenAI error", error);
-      return NextResponse.json(
-        { error: "Failed to generate staff guide" },
-        { status: 500 }
-      );
+      console.error("[staff-guide] OpenAI error", error);
+      return fail("OPENAI_ERROR", "Failed to generate staff guide", 500, { upstream: error });
     }
 
     const data = await response.json();
     const guide =
-      data.choices?.[0]?.message?.content?.trim() ||
+      data?.choices?.[0]?.message?.content?.trim() ||
       "Sorry, I couldn't generate a staff guide.";
 
-    return NextResponse.json({ guide });
-  } catch (err) {
-    console.error(err);
-    return NextResponse.json(
-      { error: "Unexpected error generating staff guide" },
-      { status: 500 }
-    );
+    return ok({ guide });
+  } catch (err: any) {
+    console.error("[staff-guide] Unexpected error", err);
+    return fail("INTERNAL_ERROR", "Unexpected error generating staff guide", 500, {
+      detail: err?.message ?? String(err),
+    });
   }
+}
+
+export async function GET() {
+  return fail("METHOD_NOT_ALLOWED", "Method Not Allowed", 405);
 }

@@ -18,8 +18,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       },
 
       async authorize(credentials) {
-        const email = typeof credentials?.email === "string" ? credentials.email.trim().toLowerCase() : "";
-        const password = typeof credentials?.password === "string" ? credentials.password : "";
+        const email =
+          typeof credentials?.email === "string"
+            ? credentials.email.trim().toLowerCase()
+            : "";
+        const password =
+          typeof credentials?.password === "string" ? credentials.password : "";
 
         if (!email || !password) return null;
 
@@ -32,7 +36,6 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const ok = await bcrypt.compare(password, user.passwordHash);
         if (!ok) return null;
 
-        // NextAuth expects a plain object with at least an id
         return {
           id: user.id,
           name: user.name ?? null,
@@ -48,16 +51,30 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   },
 
   callbacks: {
-    // Put userId onto the token so we can use it easily later
     async jwt({ token, user }) {
       if (user?.id) token.sub = user.id;
       return token;
     },
+
     async session({ session, token }) {
-      // session.user exists for logged-in users
-      if (session.user && token?.sub) {
-        (session.user as any).id = token.sub;
+      if (!session.user || !token?.sub) return session;
+
+      const userId = String(token.sub);
+      (session.user as any).id = userId;
+
+      // ✅ Only query fields that definitely exist in your current schema
+      try {
+        const dbUser = await prisma.user.findUnique({
+          where: { id: userId },
+          select: { plan: true },
+        });
+
+        (session.user as any).plan = dbUser?.plan ?? "free";
+      } catch {
+        // Don't break auth if DB hiccups
+        (session.user as any).plan = (session.user as any).plan ?? "free";
       }
+
       return session;
     },
   },

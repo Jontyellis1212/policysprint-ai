@@ -27,6 +27,40 @@ async function requireUserId() {
   return { ok: true as const, userId };
 }
 
+// ---- Monetisation constants ----
+const FREE_POLICY_LIMIT_TOTAL = 1;
+
+async function enforceCreatePolicyLimit(userId: string) {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { plan: true },
+  });
+
+  // If user record is missing, treat as unauthorized
+  if (!user) {
+    return { ok: false as const, res: fail("UNAUTHORIZED", "Unauthorized", 401) };
+  }
+
+  const plan = user.plan ?? "free";
+  if (plan === "pro") return { ok: true as const, plan };
+
+  // Free plan: limit total saved policies
+  const count = await prisma.policy.count({ where: { userId } });
+
+  if (count >= FREE_POLICY_LIMIT_TOTAL) {
+    return {
+      ok: false as const,
+      res: fail("FREE_LIMIT_REACHED", "Upgrade required to create more policies.", 403, {
+        plan,
+        limit: FREE_POLICY_LIMIT_TOTAL,
+        currentCount: count,
+      }),
+    };
+  }
+
+  return { ok: true as const, plan, currentCount: count };
+}
+
 /**
  * GET /api/policies
  * List policies for the logged-in user only
@@ -51,10 +85,16 @@ export async function GET() {
 /**
  * POST /api/policies
  * Create a new policy owned by the logged-in user
+ *
+ * Monetisation: Free users can save up to FREE_POLICY_LIMIT_TOTAL policies total.
  */
 export async function POST(req: Request) {
   const u = await requireUserId();
   if (!u.ok) return u.res;
+
+  // ✅ Enforce free limit (server-side)
+  const ent = await enforceCreatePolicyLimit(u.userId);
+  if (!ent.ok) return ent.res;
 
   try {
     const body = await req.json().catch(() => null);

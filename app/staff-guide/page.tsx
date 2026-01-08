@@ -6,6 +6,19 @@ import EmailButton from "../components/EmailButton";
 
 const LAST_POLICY_KEY = "policysprint:lastPolicy";
 
+type ApiOk<T> = { ok: true; data: T };
+type ApiErr = { ok: false; error: { code?: string; message: string; details?: unknown } };
+type ApiResponse<T> = ApiOk<T> | ApiErr;
+
+function isApiOk<T>(v: any): v is ApiOk<T> {
+  return v && typeof v === "object" && v.ok === true && "data" in v;
+}
+function isApiErr(v: any): v is ApiErr {
+  return v && typeof v === "object" && v.ok === false && v.error && typeof v.error.message === "string";
+}
+
+type PaywallState = { title: string; message: string } | null;
+
 export default function StaffGuidePage() {
   const [policyText, setPolicyText] = useState("");
   const [guide, setGuide] = useState("");
@@ -13,6 +26,9 @@ export default function StaffGuidePage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [prefilledFromStorage, setPrefilledFromStorage] = useState(false);
+
+  // NEW: Pro paywall banner state (for staff guide)
+  const [paywall, setPaywall] = useState<PaywallState>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -38,6 +54,7 @@ export default function StaffGuidePage() {
     }
 
     setErrorMessage(null);
+    setPaywall(null);
     setGuide("");
     setLoading(true);
 
@@ -48,16 +65,61 @@ export default function StaffGuidePage() {
         body: JSON.stringify({ policyText }),
       });
 
-      const data = await res.json().catch(() => ({} as any));
+      const contentType = (res.headers.get("content-type") || "").toLowerCase();
+      const data = (await res.json().catch(() => null)) as ApiResponse<{ guide: string }> | any | null;
+
+      // Handle auth redirect pattern (if you later add it)
+      if (res.status === 401) {
+        throw new Error("Please sign in to generate a staff guide.");
+      }
+
+      // Pro gate (server returns { ok:false, error:{ code:"PRO_REQUIRED" } } with 403)
+      if (res.status === 403) {
+        const code =
+          (typeof data?.error?.code === "string" && data.error.code) ||
+          (typeof data?.code === "string" && data.code) ||
+          "";
+        const msg =
+          (typeof data?.error?.message === "string" && data.error.message) ||
+          (typeof data?.error === "string" && data.error) ||
+          "";
+
+        if (code.toUpperCase() === "PRO_REQUIRED" || contentType.includes("application/json")) {
+          setPaywall({
+            title: "Staff guides are a Pro feature",
+            message:
+              msg ||
+              "Upgrade to Pro to generate staff-friendly guides from your policies (perfect for onboarding and training).",
+          });
+          return;
+        }
+      }
+
       if (!res.ok) {
-        throw new Error(data?.error || "Failed to generate staff guide.");
+        // Consistent API shape
+        if (data && isApiErr(data)) throw new Error(data.error.message);
+
+        // Legacy / unknown shape
+        const legacyMsg =
+          (typeof data?.error === "string" && data.error) ||
+          (typeof data?.message === "string" && data.message) ||
+          "";
+        throw new Error(legacyMsg || "Failed to generate staff guide.");
       }
 
-      if (!data.guide || typeof data.guide !== "string") {
-        throw new Error("Unexpected response from staff guide API.");
+      // Success path: new API shape
+      if (data && isApiOk<{ guide: string }>(data) && typeof data.data?.guide === "string") {
+        setGuide(data.data.guide);
+        return;
       }
 
-      setGuide(data.guide);
+      // Backwards compatibility (if you ever hit old route accidentally)
+      if (data && typeof (data as any).guide === "string") {
+        setGuide((data as any).guide);
+        return;
+      }
+
+      throw new Error("Unexpected response from staff guide API.");
     } catch (err: any) {
       console.error(err);
       setErrorMessage(err?.message || "Something went wrong.");
@@ -88,17 +150,50 @@ export default function StaffGuidePage() {
                 PS
               </div>
               <div>
-                <h1 className="text-sm font-semibold text-slate-900">
-                  PolicySprint
-                </h1>
+                <h1 className="text-sm font-semibold text-slate-900">PolicySprint</h1>
                 <p className="text-xs text-slate-500">Staff guide generator</p>
               </div>
             </div>
 
-            <div className="text-[11px] text-slate-500">
-              Help staff understand the policy in plain English
-            </div>
+            <div className="text-[11px] text-slate-500">Help staff understand the policy in plain English</div>
           </header>
+
+          {/* Pro paywall banner */}
+          {paywall ? (
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-900 shadow-sm">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold">{paywall.title}</p>
+                  <p className="mt-1 text-sm text-amber-900/90">{paywall.message}</p>
+                  <p className="mt-2 text-xs text-amber-900/70">
+                    Already paid? Go back to your dashboard and refresh to sync your plan.
+                  </p>
+                </div>
+
+                <div className="flex gap-2">
+                  <a
+                    href="/pricing"
+                    className="px-3 py-1.5 rounded-full bg-amber-500 text-xs font-medium text-slate-950 hover:bg-amber-400"
+                  >
+                    Upgrade to Pro
+                  </a>
+                  <a
+                    href="/pricing"
+                    className="px-3 py-1.5 rounded-full border border-amber-300 bg-white text-xs font-medium text-amber-900 hover:bg-amber-100"
+                  >
+                    See plans
+                  </a>
+                  <button
+                    onClick={() => setPaywall(null)}
+                    className="px-3 py-1.5 rounded-full border border-amber-300 bg-white text-xs font-medium text-amber-900 hover:bg-amber-100"
+                    title="Dismiss"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
 
           {/* Hero card */}
           <section className="bg-white border border-slate-200 rounded-2xl shadow-sm p-5 md:p-6 space-y-4">
@@ -111,13 +206,11 @@ export default function StaffGuidePage() {
                   </span>
                 </h2>
                 <p className="text-xs md:text-sm text-slate-600 max-w-xl">
-                  Convert your AI Use Policy into a short, plain-English summary
-                  that’s easy for staff to read and understand.
+                  Convert your AI Use Policy into a short, plain-English summary that’s easy for staff to read and
+                  understand.
                 </p>
                 {prefilledFromStorage && (
-                  <p className="text-[11px] text-emerald-700">
-                    Loaded your most recent policy from the wizard.
-                  </p>
+                  <p className="text-[11px] text-emerald-700">Loaded your most recent policy from the wizard.</p>
                 )}
               </div>
 
@@ -137,9 +230,7 @@ export default function StaffGuidePage() {
                 className="space-y-4 rounded-xl border border-slate-200 bg-slate-50 p-4"
               >
                 <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">
-                    Your AI Use Policy
-                  </label>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Your AI Use Policy</label>
                   <textarea
                     value={policyText}
                     onChange={(e) => setPolicyText(e.target.value)}
@@ -147,8 +238,7 @@ export default function StaffGuidePage() {
                     className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 outline-none focus:border-slate-900 min-h-[200px]"
                   />
                   <p className="text-[11px] text-slate-500 mt-1">
-                    A staff guide summarises your policy into simple, actionable
-                    rules staff can follow.
+                    A staff guide summarises your policy into simple, actionable rules staff can follow.
                   </p>
                 </div>
 
@@ -172,9 +262,7 @@ export default function StaffGuidePage() {
                 <div className="flex items-center justify-between mb-2">
                   <div>
                     <h3 className="text-sm font-semibold">Staff guide output</h3>
-                    <p className="text-[11px] text-slate-300">
-                      Summary of your AI Use Policy in plain English.
-                    </p>
+                    <p className="text-[11px] text-slate-300">Summary of your AI Use Policy in plain English.</p>
                   </div>
                   <button
                     type="button"
@@ -202,39 +290,31 @@ export default function StaffGuidePage() {
                 <div className="flex-1 rounded-lg border border-slate-700 bg-slate-950/70 p-3 text-xs whitespace-pre-wrap overflow-auto">
                   {!guide && !loading && (
                     <p className="text-slate-400">
-                      After generating, your staff guide will appear here.
-                      This includes:
+                      After generating, your staff guide will appear here. This includes:
                       <br />
-                      • What staff can / can’t do  
-                      • How to use approved AI tools  
-                      • Privacy, data and safety rules  
-                      • Who to ask for help  
-                      <br />
+                      • What staff can / can’t do <br />
+                      • How to use approved AI tools <br />
+                      • Privacy, data and safety rules <br />
+                      • Who to ask for help <br />
                       <br />
                       Tip: paste this into your intranet or training LMS.
                     </p>
                   )}
 
-                  {loading && (
-                    <p className="text-slate-400 italic">
-                      Summarising your policy into friendly language…
-                    </p>
-                  )}
+                  {loading && <p className="text-slate-400 italic">Summarising your policy into friendly language…</p>}
 
                   {guide && !loading && guide}
                 </div>
 
                 <p className="mt-2 text-[11px] text-slate-400">
-                  Tip: Share this guide alongside your full policy for easier
-                  onboarding and refresher training.
+                  Tip: Share this guide alongside your full policy for easier onboarding and refresher training.
                 </p>
               </div>
             </div>
           </section>
 
           <p className="text-[11px] text-slate-500">
-            Staff guides are for training only. Always keep your official AI
-            Use Policy as the source of truth.
+            Staff guides are for training only. Always keep your official AI Use Policy as the source of truth.
           </p>
         </div>
       </main>
