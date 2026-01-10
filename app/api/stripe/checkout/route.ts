@@ -12,6 +12,22 @@ function requiredEnv(name: string) {
   return v;
 }
 
+/**
+ * Get the public base URL we should redirect back to after Stripe.
+ * - Prefer APP_URL / NEXTAUTH_URL (set in Railway)
+ * - Fallback to request origin (works locally)
+ */
+function getBaseUrl(req: Request) {
+  const envUrl =
+    process.env.APP_URL ||
+    process.env.NEXTAUTH_URL ||
+    process.env.AUTH_URL ||
+    "";
+  if (envUrl) return envUrl.replace(/\/+$/, ""); // trim trailing slash
+
+  return new URL(req.url).origin;
+}
+
 export async function POST(req: Request) {
   try {
     const session = await auth();
@@ -45,7 +61,7 @@ export async function POST(req: Request) {
       });
     }
 
-    const origin = new URL(req.url).origin;
+    const baseUrl = getBaseUrl(req);
 
     const checkout = await stripe.checkout.sessions.create({
       mode: "subscription",
@@ -53,12 +69,12 @@ export async function POST(req: Request) {
       line_items: [{ price: PRICE_ID, quantity: 1 }],
       allow_promotion_codes: true,
 
-      // ✅ Always include userId mapping for webhook
+      // For webhook mapping
       client_reference_id: userId,
       metadata: { userId },
 
-      success_url: `${origin}/dashboard/policies?stripe=success`,
-      cancel_url: `${origin}/pricing?stripe=cancel`,
+      success_url: `${baseUrl}/dashboard/policies?stripe=success`,
+      cancel_url: `${baseUrl}/pricing?stripe=cancel`,
     });
 
     if (!checkout.url) {
