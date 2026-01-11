@@ -8,7 +8,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "node -e \"console.log('START_SCRIPT_OK_v1')\" && next start -p ${PORT:-3000}",
+    "start": "next start -H 0.0.0.0 -p ${PORT:-3000}",
     "migrate:deploy": "prisma migrate deploy",
     "lint": "eslint",
     "postinstall": "prisma generate"
