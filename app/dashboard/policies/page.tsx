@@ -3,11 +3,12 @@ import StripeSuccessRefresh from "./StripeSuccessRefresh";
 
 export default async function DashboardPoliciesPage() {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-      {/* Handles Stripe success → session refresh */}
+    <>
+      {/* Handles Stripe success → DB sync + session refresh */}
       <StripeSuccessRefresh />
 
+      {/* Let PoliciesListPage own the layout + styling */}
       <PoliciesListPage basePath="/dashboard/policies" showSignedInAs={false} />
-    </div>
+    </>
   );
 }

@@ -32,6 +32,14 @@ export default function StripeSuccessRefresh() {
 
     if (stripeSuccess) {
       sessionStorage.setItem("ps_stripe_success", "1");
+
+      // Remove ?stripe=success immediately so the page doesn't stay in a "state"
+      const params = new URLSearchParams(searchParams.toString());
+      params.delete("stripe");
+      const qs = params.toString();
+      router.replace(qs ? `/dashboard/policies?${qs}` : "/dashboard/policies", {
+        scroll: false,
+      });
     }
 
     const shouldRun =
@@ -43,29 +51,24 @@ export default function StripeSuccessRefresh() {
     let cancelled = false;
 
     const run = async () => {
-      // ✅ First: sync user subscription from Stripe -> DB
+      // 1) Sync Stripe -> DB
       await callSync();
 
-      // Then poll session for up to ~10 seconds
+      // 2) Poll session for up to ~10 seconds without forcing refresh each time
       for (let i = 0; i < 10; i++) {
         if (cancelled) return;
 
         const plan = await getSessionPlan();
         if (plan === "pro") {
           sessionStorage.removeItem("ps_stripe_success");
-
-          const params = new URLSearchParams(searchParams.toString());
-          params.delete("stripe");
-          const qs = params.toString();
-          router.replace(qs ? `?${qs}` : ".", { scroll: false });
-          router.refresh();
+          router.refresh(); // single refresh once we know it's pro
           return;
         }
 
-        router.refresh();
         await new Promise((r) => setTimeout(r, 1000));
       }
 
+      // Give up quietly
       sessionStorage.removeItem("ps_stripe_success");
     };
 
