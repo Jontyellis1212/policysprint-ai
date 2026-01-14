@@ -13,27 +13,17 @@ function requiredEnv(name: string) {
 }
 
 /**
- * Public base URL for redirects after Stripe.
- *
- * Production rule:
- * - MUST come from APP_URL (single source of truth)
- *
- * Local/dev rule:
- * - Fallback to request origin (convenient for localhost)
+ * Get the public base URL we should redirect back to after Stripe.
+ * - Prefer APP_URL / NEXTAUTH_URL / AUTH_URL (set in Railway)
+ * - Fallback to request origin (works locally)
  */
 function getBaseUrl(req: Request) {
-  const appUrl = (process.env.APP_URL || "").trim().replace(/\/+$/, "");
-
-  // If APP_URL is set, always use it.
-  if (appUrl) return appUrl;
-
-  // If we're in production and APP_URL is missing, fail fast.
-  // This prevents Stripe redirects to internal/origin-mismatched URLs.
-  if (process.env.NODE_ENV === "production") {
-    throw new Error("Missing env var: APP_URL (required in production for Stripe redirects)");
-  }
-
-  // Local/dev fallback
+  const envUrl =
+    process.env.APP_URL ||
+    process.env.NEXTAUTH_URL ||
+    process.env.AUTH_URL ||
+    "";
+  if (envUrl) return envUrl.replace(/\/+$/, ""); // trim trailing slash
   return new URL(req.url).origin;
 }
 
@@ -62,14 +52,14 @@ export async function POST(req: Request) {
     if (!stripeCustomerId) {
       const customer = await stripe.customers.create({
         email: user.email ?? email ?? undefined,
-        metadata: { userId }
+        metadata: { userId },
       });
 
       stripeCustomerId = customer.id;
 
       await prisma.user.update({
         where: { id: userId },
-        data: { stripeCustomerId }
+        data: { stripeCustomerId },
       });
     }
 
@@ -85,12 +75,16 @@ export async function POST(req: Request) {
       client_reference_id: userId,
       metadata: { userId },
 
-      success_url: `${baseUrl}/dashboard/policies?stripe=success`,
-      cancel_url: `${baseUrl}/pricing?stripe=cancel`
+      // ✅ Redirect into the main app experience (not dashboard shell)
+      success_url: `${baseUrl}/policies?stripe=success`,
+      cancel_url: `${baseUrl}/pricing?stripe=cancel`,
     });
 
     if (!checkout.url) {
-      return NextResponse.redirect(new URL("/pricing?stripe=no-checkout-url", req.url), 303);
+      return NextResponse.redirect(
+        new URL("/pricing?stripe=no-checkout-url", req.url),
+        303
+      );
     }
 
     return NextResponse.redirect(checkout.url, 303);
