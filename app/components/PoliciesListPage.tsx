@@ -61,7 +61,6 @@ export default async function PoliciesListPage({
     <div>
       <header className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div>
-          {/* ✅ Brand-consistent heading colors */}
           <h1 className="text-3xl font-semibold text-slate-900">Policies</h1>
           <p className="mt-1 text-sm text-slate-600">
             Click a policy to view, edit, duplicate, delete, or export.
@@ -70,35 +69,34 @@ export default async function PoliciesListPage({
           {showSignedInAs && userEmail ? (
             <p className="mt-1 text-xs text-slate-500">
               Signed in as{" "}
-              <span className="font-semibold text-slate-700">
-                {userEmail}
-              </span>
+              <span className="font-semibold text-slate-700">{userEmail}</span>
             </p>
           ) : null}
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          {/* ✅ Light-mode neutral secondary button */}
-          <Link
-            href={basePath}
-            prefetch={false}
-            className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 transition"
-          >
-            Refresh
-          </Link>
+        {/* Only show header actions when there are policies.
+            On empty state, the card owns the CTAs to avoid duplication. */}
+        {!showEmpty ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <Link
+              href={basePath}
+              prefetch={false}
+              className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 transition"
+            >
+              Refresh
+            </Link>
 
-          {/* ✅ Primary CTA matches site */}
-          <Link
-            href="/?demo=1"
-            className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 transition"
-          >
-            New policy
-          </Link>
-        </div>
+            <Link
+              href="/?demo=1"
+              className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 transition"
+            >
+              New policy
+            </Link>
+          </div>
+        ) : null}
       </header>
 
       {showEmpty ? (
-        // ✅ REPLACED: old dark/low-contrast empty state -> clean on-brand card
         <div className="rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
             Welcome
