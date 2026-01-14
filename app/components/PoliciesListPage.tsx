@@ -61,34 +61,33 @@ export default async function PoliciesListPage({
     <div>
       <header className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-semibold text-slate-900">Policies</h1>
-          <p className="mt-1 text-sm text-slate-600">
+          <h1 className="text-3xl font-semibold text-slate-50">Policies</h1>
+          <p className="mt-1 text-sm text-slate-200">
             Click a policy to view, edit, duplicate, delete, or export.
           </p>
 
           {showSignedInAs && userEmail ? (
-            <p className="mt-1 text-xs text-slate-500">
+            <p className="mt-2 text-xs text-slate-400">
               Signed in as{" "}
-              <span className="font-semibold text-slate-700">{userEmail}</span>
+              <span className="font-semibold text-slate-200">{userEmail}</span>
             </p>
           ) : null}
         </div>
 
-        {/* Only show header actions when there are policies.
-            On empty state, the card owns the CTAs to avoid duplication. */}
+        {/* Match header pill styles exactly */}
         {!showEmpty ? (
           <div className="flex flex-wrap items-center gap-2">
             <Link
               href={basePath}
               prefetch={false}
-              className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 transition"
+              className="inline-flex rounded-full border border-slate-700 px-4 py-2 text-sm font-medium text-slate-100 hover:border-slate-500 hover:text-white transition"
             >
               Refresh
             </Link>
 
             <Link
               href="/?demo=1"
-              className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 transition"
+              className="inline-flex rounded-full border border-emerald-400/90 px-4 py-2 text-sm font-medium text-emerald-100 hover:border-emerald-300 hover:text-emerald-50 transition"
             >
               New policy
             </Link>
@@ -97,24 +96,24 @@ export default async function PoliciesListPage({
       </header>
 
       {showEmpty ? (
-        <div className="rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+        <div className="rounded-2xl border border-slate-800 bg-slate-950/95 backdrop-blur-md p-8 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
             Welcome
           </p>
 
-          <h2 className="mt-2 text-2xl font-semibold text-slate-900">
+          <h2 className="mt-2 text-2xl font-semibold text-slate-50">
             Create your first policy
           </h2>
 
-          <p className="mt-2 max-w-2xl text-sm text-slate-600">
-            Generate a policy in minutes. You can edit it, save versions,
-            restore snapshots, and export a professional PDF when ready.
+          <p className="mt-2 max-w-2xl text-sm text-slate-200">
+            Generate a policy in minutes. Edit it, save versions, restore
+            snapshots, and export a professional PDF when ready.
           </p>
 
           <div className="mt-6 flex flex-wrap gap-3">
             <Link
               href="/?demo=1"
-              className="inline-flex items-center rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 transition"
+              className="inline-flex rounded-full border border-emerald-400/90 px-5 py-2.5 text-sm font-medium text-emerald-100 hover:border-emerald-300 hover:text-emerald-50 transition"
             >
               Generate a policy
             </Link>
@@ -122,17 +121,18 @@ export default async function PoliciesListPage({
             <Link
               href={basePath}
               prefetch={false}
-              className="rounded-lg border border-slate-300 bg-white px-5 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 transition"
+              className="inline-flex rounded-full border border-slate-700 px-5 py-2.5 text-sm font-medium text-slate-100 hover:border-slate-500 hover:text-white transition"
             >
               Refresh
             </Link>
           </div>
 
-          <div className="mt-8 rounded-xl border border-slate-200 bg-slate-50 p-5">
-            <p className="text-sm font-semibold text-slate-900">
+          <div className="mt-8 rounded-xl border border-slate-800 bg-slate-950/60 p-5">
+            <p className="text-sm font-semibold text-slate-50">
               What happens next?
             </p>
-            <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-slate-600">
+
+            <ul className="mt-3 list-disc space-y-1.5 pl-5 text-sm text-slate-200">
               <li>Generate a policy from the wizard</li>
               <li>Save it to your dashboard</li>
               <li>Edit later and restore from version history</li>
@@ -146,14 +146,14 @@ export default async function PoliciesListPage({
             <li key={p.id}>
               <Link
                 href={`${basePath}/${p.id}`}
-                className="block rounded-lg border border-slate-200 bg-white p-4 hover:bg-slate-50 transition"
+                className="block rounded-xl border border-slate-800 bg-slate-950/80 backdrop-blur-md p-4 hover:border-slate-700 hover:bg-slate-950/95 transition"
               >
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <h3 className="font-medium text-slate-900">
+                  <h3 className="font-medium text-slate-50">
                     {p.title || "AI Use Policy"}
                   </h3>
 
-                  <span className="text-xs text-slate-500">
+                  <span className="text-xs text-slate-400">
                     {p.createdAt
                       ? new Date(p.createdAt).toLocaleString(undefined, {
                           dateStyle: "medium",
@@ -163,7 +163,7 @@ export default async function PoliciesListPage({
                   </span>
                 </div>
 
-                <p className="mt-1 text-xs text-slate-500">
+                <p className="mt-1 text-xs text-slate-200">
                   {formatMeta(p) || "—"}
                 </p>
               </Link>
