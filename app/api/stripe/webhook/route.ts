@@ -7,20 +7,10 @@ export const runtime = "nodejs";
 
 // Stripe REQUIRES raw body for signature verification
 export async function POST(req: Request) {
-  const marker = "STRIPE_WEBHOOK_HIT_v1";
   const sig = req.headers.get("stripe-signature");
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
-  // ✅ Proof log: did we get *any* request?
-  console.log(marker, "received request", {
-    hasSig: !!sig,
-    hasSecret: !!webhookSecret,
-    url: req.url,
-    method: "POST",
-  });
-
   if (!sig || !webhookSecret) {
-    console.error(marker, "missing signature or secret");
     return NextResponse.json(
       { error: "Missing Stripe signature" },
       { status: 400 }
@@ -33,14 +23,9 @@ export async function POST(req: Request) {
   try {
     event = stripe.webhooks.constructEvent(body, sig, webhookSecret);
   } catch (err: any) {
-    console.error(marker, "signature failed", err?.message);
+    console.error("❌ Stripe webhook signature failed", err?.message);
     return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
   }
-
-  console.log(marker, "event verified", {
-    type: event?.type,
-    id: event?.id,
-  });
 
   try {
     switch (event.type) {
@@ -48,11 +33,6 @@ export async function POST(req: Request) {
         const session = event.data.object as any;
         const userId = session.client_reference_id;
         const subscriptionId = session.subscription;
-
-        console.log(marker, "checkout.session.completed", {
-          userId,
-          subscriptionId,
-        });
 
         if (!userId || !subscriptionId) break;
 
@@ -74,24 +54,12 @@ export async function POST(req: Request) {
           },
         });
 
-        console.log(marker, "user upgraded to pro", {
-          userId,
-          subId: sub.id,
-          status: sub.status,
-          priceId: item?.price?.id ?? null,
-        });
-
         break;
       }
 
       case "customer.subscription.updated":
       case "customer.subscription.deleted": {
         const sub = event.data.object as any;
-
-        console.log(marker, event.type, {
-          subId: sub?.id,
-          status: sub?.status,
-        });
 
         const user = await prisma.user.findFirst({
           where: { stripeSubscriptionId: sub.id },
@@ -113,12 +81,6 @@ export async function POST(req: Request) {
                 ? new Date(item.current_period_end * 1000)
                 : null,
           },
-        });
-
-        console.log(marker, "user plan updated from subscription event", {
-          userId: user.id,
-          plan: active ? "pro" : "free",
-          status: sub.status,
         });
 
         break;
