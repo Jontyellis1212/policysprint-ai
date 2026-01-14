@@ -13,18 +13,27 @@ function requiredEnv(name: string) {
 }
 
 /**
- * Get the public base URL we should redirect back to after Stripe.
- * - Prefer APP_URL / NEXTAUTH_URL (set in Railway)
- * - Fallback to request origin (works locally)
+ * Public base URL for redirects after Stripe.
+ *
+ * Production rule:
+ * - MUST come from APP_URL (single source of truth)
+ *
+ * Local/dev rule:
+ * - Fallback to request origin (convenient for localhost)
  */
 function getBaseUrl(req: Request) {
-  const envUrl =
-    process.env.APP_URL ||
-    process.env.NEXTAUTH_URL ||
-    process.env.AUTH_URL ||
-    "";
-  if (envUrl) return envUrl.replace(/\/+$/, ""); // trim trailing slash
+  const appUrl = (process.env.APP_URL || "").trim().replace(/\/+$/, "");
 
+  // If APP_URL is set, always use it.
+  if (appUrl) return appUrl;
+
+  // If we're in production and APP_URL is missing, fail fast.
+  // This prevents Stripe redirects to internal/origin-mismatched URLs.
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("Missing env var: APP_URL (required in production for Stripe redirects)");
+  }
+
+  // Local/dev fallback
   return new URL(req.url).origin;
 }
 
@@ -42,7 +51,10 @@ export async function POST(req: Request) {
 
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user) {
-      return NextResponse.redirect(new URL("/pricing?stripe=user-not-found", req.url), 303);
+      return NextResponse.redirect(
+        new URL("/pricing?stripe=user-not-found", req.url),
+        303
+      );
     }
 
     // Ensure we have a Stripe customer
@@ -50,14 +62,14 @@ export async function POST(req: Request) {
     if (!stripeCustomerId) {
       const customer = await stripe.customers.create({
         email: user.email ?? email ?? undefined,
-        metadata: { userId },
+        metadata: { userId }
       });
 
       stripeCustomerId = customer.id;
 
       await prisma.user.update({
         where: { id: userId },
-        data: { stripeCustomerId },
+        data: { stripeCustomerId }
       });
     }
 
@@ -74,7 +86,7 @@ export async function POST(req: Request) {
       metadata: { userId },
 
       success_url: `${baseUrl}/dashboard/policies?stripe=success`,
-      cancel_url: `${baseUrl}/pricing?stripe=cancel`,
+      cancel_url: `${baseUrl}/pricing?stripe=cancel`
     });
 
     if (!checkout.url) {
