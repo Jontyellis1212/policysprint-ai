@@ -29,23 +29,14 @@ export default function PdfPreviewClient({
 
       if (!blobUrl || !containerRef.current) return;
 
-      // Clear previous preview
+      // clear previous preview
       containerRef.current.innerHTML = "";
 
       try {
-        /**
-         * ✅ Import the root package export (guaranteed to exist because it's a dependency)
-         * This fixes the build-time "Cannot find module pdfjs-dist/legacy/..." error.
-         */
+        // ✅ browser-safe import
         const pdfjsLib: any = await import("pdfjs-dist");
 
-        /**
-         * ✅ Worker must be served from /public
-         * Your copy script writes BOTH:
-         *   /public/pdf.worker.min.js
-         *   /public/pdf.worker.min.mjs
-         * We'll use .js (most compatible across browsers + Next environments).
-         */
+        // ✅ worker served from /public (your copy script writes this)
         pdfjsLib.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.js";
 
         const loadingTask = pdfjsLib.getDocument({
@@ -72,15 +63,9 @@ export default function PdfPreviewClient({
           canvas.style.margin = "0 auto 16px auto";
           canvas.style.background = "white";
 
-          await page
-            .render({
-              canvasContext: ctx,
-              viewport,
-            })
-            .promise;
+          await page.render({ canvasContext: ctx, viewport }).promise;
 
           if (cancelled) return;
-
           containerRef.current.appendChild(canvas);
         }
       } catch (e: any) {
@@ -130,7 +115,7 @@ export default function PdfPreviewClient({
     );
   }
 
-  // Fallback: show PDF directly if pdf.js fails
+  // ✅ fallback if pdf.js fails
   if (useIframeFallback) {
     return (
       <div className="rounded border border-slate-200 bg-white overflow-hidden">
@@ -138,16 +123,11 @@ export default function PdfPreviewClient({
           Preview renderer hit an issue, showing fallback preview.
           {shownError ? ` (${shownError})` : null}
         </div>
-        <iframe
-          title="PDF Preview"
-          src={blobUrl}
-          style={{ height, width: "100%" }}
-        />
+        <iframe title="PDF Preview" src={blobUrl} style={{ height, width: "100%" }} />
       </div>
     );
   }
 
-  // pdf.js canvas container
   return (
     <div className="rounded border border-slate-200 bg-white overflow-hidden">
       {shownError ? (
