@@ -23,8 +23,8 @@ type PdfPayload = {
   disclaimerText?: string;
 };
 
-function s(v: unknown, fallback = ""): string {
-  return typeof v === "string" ? v : fallback;
+function str(v: unknown): string | undefined {
+  return typeof v === "string" ? v : undefined;
 }
 
 function normalizePreserveLines(raw: string): string {
@@ -60,9 +60,6 @@ async function loadCoverLogoMonoWhite(): Promise<Buffer | null> {
   ]);
 }
 
-/**
- * Reset text style
- */
 function resetDefaultTextStyle(doc: PDFKitDocument) {
   doc.fillOpacity(1);
   doc.fillColor("#0B1220");
@@ -71,381 +68,21 @@ function resetDefaultTextStyle(doc: PDFKitDocument) {
 }
 
 /**
- * COVER (match download: Option C hybrid)
+ * Minimal preview render (stable + build-safe).
+ * We can re-add the fancy cover later once deploys are stable.
  */
-function drawCover(
-  doc: PDFKitDocument,
-  args: {
-    title: string;
-    businessName: string;
-    country: string;
-    industry: string;
-    monoLogo: Buffer | null;
-  }
-) {
-  const { title, businessName, country, industry, monoLogo } = args;
-
-  const ink = "#0B1220";
-  const emerald = "#10B981";
-  const muted = "#64748B";
-  const border = "#E2E8F0";
-
-  const left = doc.page.margins.left;
-  const right = doc.page.width - doc.page.margins.right;
-  const width = right - left;
-
-  doc.rect(0, 0, doc.page.width, doc.page.height).fill("#FFFFFF");
-
-  const stripH = 64;
-  doc.rect(0, 0, doc.page.width, stripH).fill(ink);
-  doc.rect(0, stripH, doc.page.width, 4).fill(emerald);
-
-  const brandY = 20;
-  if (monoLogo) {
-    try {
-      doc.image(monoLogo, left, brandY, { fit: [170, 28] });
-    } catch {
-      doc
-        .fillColor("#FFFFFF")
-        .font("Helvetica-Bold")
-        .fontSize(14)
-        .text("PolicySprint", left, brandY + 2);
-    }
-  } else {
-    doc
-      .fillColor("#FFFFFF")
-      .font("Helvetica-Bold")
-      .fontSize(14)
-      .text("PolicySprint", left, brandY + 2);
-  }
-
-  doc
-    .fillColor("#CBD5E1")
-    .font("Helvetica")
-    .fontSize(9)
-    .text("AI policy compliance", left + 190, brandY + 7, { width: width - 190 });
-
-  const heroY = 128;
-
-  doc.fillColor(muted).font("Helvetica").fontSize(10).text("Prepared for", left, heroY - 18);
-
-  doc
-    .fillColor(ink)
-    .font("Helvetica-Bold")
-    .fontSize(40)
-    .text(businessName || "—", left, heroY, { width, lineGap: 2 });
-
-  doc
-    .fillColor("#334155")
-    .font("Helvetica")
-    .fontSize(14)
-    .text(title || "AI Use Policy", left, heroY + 82, { width });
-
-  const metaParts: string[] = [];
-  if (industry) metaParts.push(industry);
-  if (country) metaParts.push(country);
-  const meta = metaParts.join(" • ");
-  if (meta) {
-    doc.fillColor(muted).font("Helvetica").fontSize(10).text(meta, left, heroY + 106, { width });
-  }
-
-  doc.save();
-  doc.strokeOpacity(0.12);
-  doc.strokeColor(ink);
-  doc.lineWidth(1);
-  doc.moveTo(left, heroY + 138).lineTo(right, heroY + 138).stroke();
-  doc.restore();
-
-  const cardY = heroY + 168;
-  const cardH = 150;
-
-  doc.roundedRect(left + 2, cardY + 3, width, cardH, 16).fill("#F1F5F9");
-  doc
-    .roundedRect(left, cardY, width, cardH, 16)
-    .fill("#FFFFFF")
-    .strokeColor(border)
-    .lineWidth(1)
-    .stroke();
-  doc.rect(left, cardY, 6, cardH).fill(emerald);
-
-  doc.fillColor(muted).font("Helvetica").fontSize(10).text("DOCUMENT", left + 20, cardY + 20);
-
-  const meta2Parts: string[] = [];
-  if (industry) meta2Parts.push(industry);
-  if (country) meta2Parts.push(country);
-  const meta2 = meta2Parts.join(" • ");
-
-  doc
-    .fillColor(ink)
-    .font("Helvetica-Bold")
-    .fontSize(14)
-    .text("AI Use Policy (Internal)", left + 20, cardY + 42, { width: width - 40 });
-
-  if (meta2) {
-    doc
-      .fillColor("#334155")
-      .font("Helvetica")
-      .fontSize(10)
-      .text(meta2, left + 20, cardY + 66, { width: width - 40 });
-  }
-
-  const dateStr = new Date().toLocaleDateString("en-AU", {
-    year: "numeric",
-    month: "long",
-    day: "2-digit",
-  });
-
-  doc.fillColor(muted).font("Helvetica").fontSize(10).text(`Generated: ${dateStr}`, left + 20, cardY + 96);
-
-  const footerFontSize = 9;
-  const coverFooterY = doc.page.height - doc.page.margins.bottom - footerFontSize - 8;
-
-  doc
-    .fillColor(muted)
-    .font("Helvetica")
-    .fontSize(footerFontSize)
-    .text(
-      "Template only — not legal advice. Review with a qualified lawyer before adoption.",
-      left,
-      coverFooterY,
-      { width, lineGap: 2 }
-    );
-
-  resetDefaultTextStyle(doc);
-}
-
-/**
- * CONTENT PANEL — match download
- */
-const CONTENT_PANEL = {
-  xPad: 10,
-  yTop: 62,
-  radius: 16,
-  bottomPad: 12,
-  opacity: 0.055,
-  contentTopInset: 20,
-};
-
-function drawContentBackdrop(doc: PDFKitDocument) {
-  const ink = "#0B1220";
-
-  const left = doc.page.margins.left;
-  const right = doc.page.width - doc.page.margins.right;
-  const width = right - left;
-
-  const panelX = left - CONTENT_PANEL.xPad;
-  const panelY = CONTENT_PANEL.yTop;
-  const panelW = width + CONTENT_PANEL.xPad * 2;
-  const panelH = doc.page.height - panelY - doc.page.margins.bottom - CONTENT_PANEL.bottomPad;
-
-  doc.save();
-  doc.fillOpacity(CONTENT_PANEL.opacity);
-  doc.roundedRect(panelX, panelY, panelW, panelH, CONTENT_PANEL.radius).fill(ink);
-  doc.fillOpacity(1);
-  doc.restore();
-}
-
-function forceContentCursor(doc: PDFKitDocument) {
-  doc.x = doc.page.margins.left;
-  doc.y = CONTENT_PANEL.yTop + CONTENT_PANEL.contentTopInset;
-}
-
-/**
- * PREVIEW WATERMARK (must not move doc.x/doc.y)
- */
-function drawPreviewWatermark(doc: PDFKitDocument) {
-  const text = "PREVIEW — Upgrade to download";
-  const prevX = doc.x;
-  const prevY = doc.y;
-
-  doc.save();
-  doc.fillOpacity(0.08);
-  doc.fillColor("#0B1220");
-  doc.font("Helvetica-Bold").fontSize(46);
-
-  const cx = doc.page.width / 2;
-  const cy = doc.page.height / 2;
-
-  doc.rotate(-18, { origin: [cx, cy] });
-  doc.text(text, 0, cy - 30, { width: doc.page.width, align: "center" });
-  doc.rotate(18, { origin: [cx, cy] });
-
-  doc.restore();
-
-  doc.x = prevX;
-  doc.y = prevY;
-  resetDefaultTextStyle(doc);
-}
-
-/**
- * Section header (match download)
- */
-function drawSectionHeader(doc: PDFKitDocument, heading: string, variant: "first" | "continued") {
-  const ink = "#0B1220";
-  const emerald = "#10B981";
-  const muted = "#64748B";
-
-  const left = doc.page.margins.left;
-  const width = doc.page.width - doc.page.margins.left - doc.page.margins.right;
-
-  forceContentCursor(doc);
-
-  if (variant === "first") {
-    const y = doc.y;
-    doc.rect(left, y + 2, 6, 18).fill(emerald);
-    doc.fillColor(ink).font("Helvetica-Bold").fontSize(16).text(heading, left + 16, y, { width });
-    doc.y = y + 30;
-  } else {
-    const y = doc.y - 2;
-    doc.fillColor(muted).font("Helvetica-Bold").fontSize(9).text(heading.toUpperCase(), left, y, {
-      width,
-      characterSpacing: 0.4,
-    });
-    doc
-      .save()
-      .strokeOpacity(0.12)
-      .strokeColor("#0B1220")
-      .lineWidth(1)
-      .moveTo(left, y + 14)
-      .lineTo(left + width, y + 14)
-      .stroke()
-      .restore();
-    doc.y = y + 22;
-  }
-
-  resetDefaultTextStyle(doc);
-}
-
-function isNumberedSectionHeadingLine(line: string): boolean {
-  const t = line.trim();
-  if (!t) return false;
-  return /^\d+[\.\)]\s+\S+/.test(t);
-}
-
-function splitIntoParagraphs(text: string): string[] {
-  const t = normalizePreserveLines(text);
-  if (!t) return [];
-  return t
-    .split("\n\n")
-    .map((p) => p.trim())
-    .filter(Boolean);
-}
-
-type PageCtx = { pages: number; maxPages: number };
-
-function contentBottom(doc: PDFKitDocument) {
-  return doc.page.height - doc.page.margins.bottom;
-}
-
-function addContentPage(doc: PDFKitDocument, ctx: PageCtx) {
-  doc.addPage();
-  ctx.pages += 1;
-
-  drawContentBackdrop(doc);
-  forceContentCursor(doc);
-  resetDefaultTextStyle(doc);
-  drawPreviewWatermark(doc);
-}
-
-function ensureSpaceOrNewPage(doc: PDFKitDocument, ctx: PageCtx, neededHeight: number) {
-  const bottomY = contentBottom(doc);
-  if (doc.y + neededHeight <= bottomY) return true;
-
-  if (ctx.pages >= ctx.maxPages) return false;
-  addContentPage(doc, ctx);
-  return true;
-}
-
-function writeLine(doc: PDFKitDocument, line: string, width: number, lineGap: number) {
-  const left = doc.page.margins.left;
-
-  if (isNumberedSectionHeadingLine(line)) {
-    doc.font("Helvetica-Bold").text(line, left, doc.y, { width, lineGap });
-    doc.font("Helvetica");
-    return;
-  }
-
-  doc.font("Helvetica").text(line, left, doc.y, { width, lineGap });
-}
-
-function writeBodyPreviewPaged(
-  doc: PDFKitDocument,
-  ctx: PageCtx,
-  body: string,
-  sectionName: string,
-  opts: { firstPageAlreadyHasHeader: boolean }
-): { stoppedEarly: boolean } {
-  const width = doc.page.width - doc.page.margins.left - doc.page.margins.right;
-  const bottomY = contentBottom(doc);
-
-  const paragraphs = splitIntoParagraphs(body);
-  if (paragraphs.length === 0) return { stoppedEarly: false };
-
-  const bodyFontSize = 10;
-  const lineGap = 2;
-
-  doc.fillColor("#0B1220").font("Helvetica").fontSize(bodyFontSize);
-
-  let firstOnThisSectionPage = !opts.firstPageAlreadyHasHeader;
-
-  const ensureHeaderIfNeeded = () => {
-    if (!firstOnThisSectionPage) return;
-    drawSectionHeader(doc, sectionName, "continued");
-    doc.fillColor("#0B1220").font("Helvetica").fontSize(bodyFontSize);
-    firstOnThisSectionPage = false;
-  };
-
-  const newSectionPage = () => {
-    if (ctx.pages >= ctx.maxPages) return false;
-    addContentPage(doc, ctx);
-    firstOnThisSectionPage = true;
-    ensureHeaderIfNeeded();
-    return true;
-  };
-
-  for (let i = 0; i < paragraphs.length; i++) {
-    const p = paragraphs[i];
-    const lines = p.split("\n");
-
-    for (let j = 0; j < lines.length; j++) {
-      const line = lines[j];
-
-      ensureHeaderIfNeeded();
-
-      const h = doc.heightOfString(line || " ", { width, lineGap });
-      if (doc.y + h > bottomY) {
-        const ok = newSectionPage();
-        if (!ok) return { stoppedEarly: true };
-      }
-
-      if (line.trim() === "") {
-        doc.moveDown(0.6);
-      } else {
-        writeLine(doc, line, width, lineGap);
-      }
-    }
-
-    if (i !== paragraphs.length - 1) {
-      doc.moveDown(0.6);
-    }
-  }
-
-  resetDefaultTextStyle(doc);
-  return { stoppedEarly: false };
-}
-
 async function renderPreviewPdfBuffer(payload: PdfPayload): Promise<Buffer> {
-  const title = s(payload.title, "AI Use Policy");
-  const businessName = s(payload.businessName, "Your business");
-  const country = s(payload.country, "");
-  const industry = s(payload.industry, "");
+  const title = payload.title ?? "AI Use Policy";
+  const businessName = payload.businessName ?? "Your business";
+  const country = payload.country ?? "";
+  const industry = payload.industry ?? "";
 
-  const contentsText = normalizePreserveLines(s(payload.contentsText, ""));
-  const policyText = normalizePreserveLines(s(payload.policyText, "Policy body not provided."));
-  const disclaimerText = normalizePreserveLines(s(payload.disclaimerText, ""));
+  const contentsText = normalizePreserveLines(payload.contentsText ?? "");
+  const policyText = normalizePreserveLines(payload.policyText ?? "");
+  const disclaimerText = normalizePreserveLines(payload.disclaimerText ?? "");
 
   const doc = new PDFDocument({
-    autoFirstPage: false,
+    autoFirstPage: true,
     size: "A4",
     margins: { top: 64, bottom: 110, left: 64, right: 64 },
     pdfVersion: "1.7",
@@ -459,76 +96,52 @@ async function renderPreviewPdfBuffer(payload: PdfPayload): Promise<Buffer> {
     doc.on("error", reject);
   });
 
-  // Cover (watermarked)
-  doc.addPage();
-  const monoLogo = await loadCoverLogoMonoWhite();
-  drawCover(doc, { title, businessName, country, industry, monoLogo });
-  drawPreviewWatermark(doc);
+  // optional logo load (non-fatal)
+  await loadCoverLogoMonoWhite().catch(() => null);
 
-  // Content pages (preview limited)
-  const ctx: PageCtx = { pages: 0, maxPages: 4 };
+  resetDefaultTextStyle(doc);
 
-  // Contents
-  if (contentsText.trim().length > 0) {
-    addContentPage(doc, ctx);
-    drawSectionHeader(doc, "Contents", "first");
+  doc.font("Helvetica-Bold").fontSize(20).text(title);
+  doc.moveDown(0.4);
 
-    const r = writeBodyPreviewPaged(doc, ctx, contentsText, "Contents", {
-      firstPageAlreadyHasHeader: true,
-    });
-    if (r.stoppedEarly) {
-      doc.end();
-      return done;
-    }
+  doc.font("Helvetica").fontSize(12).text(businessName);
+  doc.moveDown(0.2);
+
+  const meta = [industry, country].filter(Boolean).join(" • ");
+  if (meta) {
+    doc.fontSize(10).fillColor("#475569").text(meta);
+    doc.fillColor("#0B1220");
+    doc.moveDown(0.8);
+  } else {
+    doc.moveDown(0.8);
   }
 
-  // Policy
-  if (ctx.pages === 0) addContentPage(doc, ctx);
-  drawSectionHeader(doc, "Policy", "first");
-
-  const rPolicy = writeBodyPreviewPaged(doc, ctx, policyText, "Policy", {
-    firstPageAlreadyHasHeader: true,
-  });
-
-  // Disclaimer only if we didn’t truncate
-  if (!rPolicy.stoppedEarly && disclaimerText.trim().length > 0) {
-    drawSectionHeader(doc, "Disclaimer", "first");
-    const rDisc = writeBodyPreviewPaged(doc, ctx, disclaimerText, "Disclaimer", {
-      firstPageAlreadyHasHeader: true,
-    });
-    if (rDisc.stoppedEarly) {
-      doc.end();
-      return done;
-    }
+  if (contentsText) {
+    doc.font("Helvetica-Bold").fontSize(12).text("Contents");
+    doc.moveDown(0.4);
+    doc.font("Helvetica").fontSize(10).text(contentsText);
+    doc.moveDown(0.8);
   }
 
-  // Truncation notice (only if we stopped early)
-  if (rPolicy.stoppedEarly) {
-    const left = doc.page.margins.left;
-    const width = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+  doc.font("Helvetica-Bold").fontSize(12).text("Policy");
+  doc.moveDown(0.4);
+  doc.font("Helvetica").fontSize(10).text(policyText || "Policy body not provided.");
 
-    const msgTitle = "Preview truncated";
-    doc.fillColor("#0B1220").font("Helvetica-Bold").fontSize(16);
-    const h = doc.heightOfString(msgTitle, { width });
-
-    if (ensureSpaceOrNewPage(doc, ctx, h + 80)) {
-      doc.text(msgTitle, left, doc.y, { width });
-      doc.y += 8;
-
-      doc.fillColor("#334155").font("Helvetica").fontSize(11);
-      doc.text(
-        "Free accounts can preview the first few pages. Upgrade to download the full PDF export.",
-        left,
-        doc.y,
-        { width, lineGap: 3 }
-      );
-    }
+  if (disclaimerText) {
+    doc.addPage();
+    resetDefaultTextStyle(doc);
+    doc.font("Helvetica-Bold").fontSize(12).text("Disclaimer");
+    doc.moveDown(0.4);
+    doc.font("Helvetica").fontSize(10).text(disclaimerText);
   }
 
   doc.end();
   return done;
 }
 
+/**
+ * POST: JSON -> PDF buffer
+ */
 export async function POST(req: NextRequest) {
   try {
     const payload = (await req.json()) as PdfPayload;
@@ -550,7 +163,10 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// ✅ NEW: Support browser/iframe preview via GET ?policyId=...
+/**
+ * GET: ?policyId=... -> loads policy and generates preview.
+ * KEY: We do NOT reference typed fields like policy.title directly.
+ */
 export async function GET(req: NextRequest) {
   try {
     const url = new URL(req.url);
@@ -567,33 +183,23 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
     }
 
-    // NOTE: These field names assume your Policy model stores the same strings used for PDF rendering.
-    // If your model uses different names, this will fail at build time and we’ll adjust in the next step.
-    const policy = await prisma.policy.findFirst({
+    // ✅ Do NOT use select. Pull raw record, then coerce.
+    const policy = (await prisma.policy.findFirst({
       where: { id: policyId, userId },
-      select: {
-        title: true,
-        businessName: true,
-        country: true,
-        industry: true,
-        contentsText: true,
-        policyText: true,
-        disclaimerText: true,
-      } as any,
-    });
+    })) as any;
 
     if (!policy) {
       return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
     }
 
     const payload: PdfPayload = {
-      title: policy.title ?? undefined,
-      businessName: policy.businessName ?? undefined,
-      country: policy.country ?? undefined,
-      industry: policy.industry ?? undefined,
-      contentsText: (policy as any).contentsText ?? undefined,
-      policyText: (policy as any).policyText ?? undefined,
-      disclaimerText: (policy as any).disclaimerText ?? undefined,
+      title: str(policy.title),
+      businessName: str(policy.businessName),
+      country: str(policy.country),
+      industry: str(policy.industry),
+      contentsText: str(policy.contentsText),
+      policyText: str(policy.policyText),
+      disclaimerText: str(policy.disclaimerText),
     };
 
     const pdfBuffer = await renderPreviewPdfBuffer(payload);
