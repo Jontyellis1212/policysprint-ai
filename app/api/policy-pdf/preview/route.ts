@@ -7,6 +7,9 @@ type PDFKitDocument = PDFKit.PDFDocument;
 import path from "path";
 import { readFile } from "fs/promises";
 
+import { auth } from "@/auth";
+import { prisma } from "@/lib/prisma";
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -102,10 +105,18 @@ function drawCover(
     try {
       doc.image(monoLogo, left, brandY, { fit: [170, 28] });
     } catch {
-      doc.fillColor("#FFFFFF").font("Helvetica-Bold").fontSize(14).text("PolicySprint", left, brandY + 2);
+      doc
+        .fillColor("#FFFFFF")
+        .font("Helvetica-Bold")
+        .fontSize(14)
+        .text("PolicySprint", left, brandY + 2);
     }
   } else {
-    doc.fillColor("#FFFFFF").font("Helvetica-Bold").fontSize(14).text("PolicySprint", left, brandY + 2);
+    doc
+      .fillColor("#FFFFFF")
+      .font("Helvetica-Bold")
+      .fontSize(14)
+      .text("PolicySprint", left, brandY + 2);
   }
 
   doc
@@ -305,18 +316,12 @@ function drawSectionHeader(doc: PDFKitDocument, heading: string, variant: "first
   resetDefaultTextStyle(doc);
 }
 
-/**
- * Bold numbered section heading lines like "1. Purpose" / "2) Scope"
- */
 function isNumberedSectionHeadingLine(line: string): boolean {
   const t = line.trim();
   if (!t) return false;
   return /^\d+[\.\)]\s+\S+/.test(t);
 }
 
-/**
- * ---------- Manual paginator (preview limited) ----------
- */
 function splitIntoParagraphs(text: string): string[] {
   const t = normalizePreserveLines(text);
   if (!t) return [];
@@ -381,8 +386,6 @@ function writeBodyPreviewPaged(
 
   doc.fillColor("#0B1220").font("Helvetica").fontSize(bodyFontSize);
 
-  // ✅ IMPORTANT FIX:
-  // If the caller already drew the big "first" header on this page, do NOT draw the "continued" header too.
   let firstOnThisSectionPage = !opts.firstPageAlreadyHasHeader;
 
   const ensureHeaderIfNeeded = () => {
@@ -395,7 +398,7 @@ function writeBodyPreviewPaged(
   const newSectionPage = () => {
     if (ctx.pages >= ctx.maxPages) return false;
     addContentPage(doc, ctx);
-    firstOnThisSectionPage = true; // new page needs the continued header
+    firstOnThisSectionPage = true;
     ensureHeaderIfNeeded();
     return true;
   };
@@ -508,9 +511,7 @@ async function renderPreviewPdfBuffer(payload: PdfPayload): Promise<Buffer> {
     doc.fillColor("#0B1220").font("Helvetica-Bold").fontSize(16);
     const h = doc.heightOfString(msgTitle, { width });
 
-    if (!ensureSpaceOrNewPage(doc, ctx, h + 80)) {
-      // no space/no pages left
-    } else {
+    if (ensureSpaceOrNewPage(doc, ctx, h + 80)) {
       doc.text(msgTitle, left, doc.y, { width });
       doc.y += 8;
 
@@ -549,6 +550,66 @@ export async function POST(req: NextRequest) {
   }
 }
 
-export async function GET() {
-  return NextResponse.json({ ok: false, error: "Method Not Allowed" }, { status: 405 });
+// ✅ NEW: Support browser/iframe preview via GET ?policyId=...
+export async function GET(req: NextRequest) {
+  try {
+    const url = new URL(req.url);
+    const policyId = url.searchParams.get("policyId");
+
+    if (!policyId) {
+      return NextResponse.json({ ok: false, error: "Missing policyId" }, { status: 400 });
+    }
+
+    const session = await auth();
+    const userId = (session?.user as any)?.id as string | undefined;
+
+    if (!userId) {
+      return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+    }
+
+    // NOTE: These field names assume your Policy model stores the same strings used for PDF rendering.
+    // If your model uses different names, this will fail at build time and we’ll adjust in the next step.
+    const policy = await prisma.policy.findFirst({
+      where: { id: policyId, userId },
+      select: {
+        title: true,
+        businessName: true,
+        country: true,
+        industry: true,
+        contentsText: true,
+        policyText: true,
+        disclaimerText: true,
+      } as any,
+    });
+
+    if (!policy) {
+      return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
+    }
+
+    const payload: PdfPayload = {
+      title: policy.title ?? undefined,
+      businessName: policy.businessName ?? undefined,
+      country: policy.country ?? undefined,
+      industry: policy.industry ?? undefined,
+      contentsText: (policy as any).contentsText ?? undefined,
+      policyText: (policy as any).policyText ?? undefined,
+      disclaimerText: (policy as any).disclaimerText ?? undefined,
+    };
+
+    const pdfBuffer = await renderPreviewPdfBuffer(payload);
+
+    return new NextResponse(pdfBuffer as unknown as BodyInit, {
+      status: 200,
+      headers: {
+        "Content-Type": "application/pdf",
+        "Content-Disposition": `inline; filename="policy-preview.pdf"`,
+        "Cache-Control": "no-store",
+      },
+    });
+  } catch (err: any) {
+    return NextResponse.json(
+      { ok: false, error: "Failed to generate preview.", detail: err?.message ?? String(err) },
+      { status: 500 }
+    );
+  }
 }
