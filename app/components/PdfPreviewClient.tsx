@@ -34,24 +34,28 @@ export default function PdfPreviewClient({
 
       try {
         /**
-         * ✅ Use the legacy build (most compatible in Next/webpack environments)
-         * Worker is served from /public as .js to avoid module-worker issues in Next dev.
+         * ✅ Import the root package export (guaranteed to exist because it's a dependency)
+         * This fixes the build-time "Cannot find module pdfjs-dist/legacy/..." error.
          */
-        const pdfjsLib: any = await import("pdfjs-dist/legacy/build/pdf");
+        const pdfjsLib: any = await import("pdfjs-dist");
 
-        // ✅ IMPORTANT: point to .js worker (copied into /public)
+        /**
+         * ✅ Worker must be served from /public
+         * Your copy script writes BOTH:
+         *   /public/pdf.worker.min.js
+         *   /public/pdf.worker.min.mjs
+         * We'll use .js (most compatible across browsers + Next environments).
+         */
         pdfjsLib.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.js";
 
         const loadingTask = pdfjsLib.getDocument({
           url: blobUrl,
-          // Helps when blob URLs behave oddly in some environments
           disableAutoFetch: true,
         });
 
         pdf = await loadingTask.promise;
         if (cancelled) return;
 
-        // Render each page
         for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
           const page = await pdf.getPage(pageNum);
           if (cancelled) return;
@@ -87,8 +91,6 @@ export default function PdfPreviewClient({
           (typeof e === "string" ? e : "Failed to render PDF preview.");
 
         console.error("PDF preview render failed:", e);
-
-        // If pdf.js fails, fall back to iframe preview so you still see something.
         setInternalError(msg);
         setUseIframeFallback(true);
       }
@@ -128,7 +130,7 @@ export default function PdfPreviewClient({
     );
   }
 
-  // ✅ Fallback: show PDF directly if pdf.js fails
+  // Fallback: show PDF directly if pdf.js fails
   if (useIframeFallback) {
     return (
       <div className="rounded border border-slate-200 bg-white overflow-hidden">
@@ -145,7 +147,7 @@ export default function PdfPreviewClient({
     );
   }
 
-  // ✅ pdf.js canvas container
+  // pdf.js canvas container
   return (
     <div className="rounded border border-slate-200 bg-white overflow-hidden">
       {shownError ? (
