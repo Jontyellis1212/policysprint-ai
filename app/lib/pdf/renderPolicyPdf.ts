@@ -26,6 +26,8 @@ function normalizePreserveLines(raw: string): string {
     .replace(/\r/g, "\n")
     .replace(/\f/g, "")
     .replace(/\u000c/g, "")
+    .replace(/\u2028/g, "\n")
+    .replace(/\u2029/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
@@ -310,7 +312,12 @@ function splitIntoParagraphs(text: string): string[] {
     .filter(Boolean);
 }
 
-function clampMaxPages(doc: PDFKitDocument, state: { totalPages: number }, maxTotalPages: number, sectionName: string) {
+function clampMaxPages(
+  doc: PDFKitDocument,
+  state: { totalPages: number },
+  maxTotalPages: number,
+  sectionName: string
+) {
   if (state.totalPages >= maxTotalPages) {
     const left = doc.page.margins.left;
     const width = doc.page.width - doc.page.margins.left - doc.page.margins.right;
@@ -552,10 +559,10 @@ export async function renderPdfBuffer(payload: PdfPayload, mode: "download" | "p
     }
   });
 
-  // Cover page
+  // Cover
   doc.addPage();
   state.totalPages += 1;
-  const monoLogo = await loadCoverLogoMonoWhite();
+  const monoLogo = await loadCoverLogoMonoWhite().catch(() => null);
   drawCover(doc, { title, businessName, country, industry, monoLogo });
 
   if (mode === "preview") {
@@ -595,7 +602,7 @@ export async function renderPdfBuffer(payload: PdfPayload, mode: "download" | "p
   }
 
   drawFootersWithTotalPages(doc);
-
   doc.end();
+
   return done;
 }
