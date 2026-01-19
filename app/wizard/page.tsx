@@ -17,6 +17,8 @@ interface WizardFormState {
   country: string;
   industry: string;
   teamSize: TeamSizeOption;
+
+  // What types of AI they use + details
   aiUsageNotes: string;
   aiUsageTags: string[];
 
@@ -48,7 +50,35 @@ const TEAM_SIZE_LABELS: Record<TeamSizeOption, string> = {
   enterprise: "250+ people",
 };
 
-const AI_USAGE_TAGS = ["Marketing & content", "Customer support", "Internal documents", "Coding / technical", "Other"];
+// ✅ UPDATED: adds "None currently" (mutually exclusive) + keeps your existing tags
+const AI_USAGE_TAGS = [
+  "None currently",
+  "Marketing & content",
+  "Customer support",
+  "Internal documents",
+  "Coding / technical",
+  "Other",
+];
+
+// ✅ NEW: dropdown of common tools (this does NOT change your API payload shape)
+const COMMON_AI_TOOLS = [
+  "ChatGPT",
+  "Microsoft Copilot",
+  "Google Gemini",
+  "Claude",
+  "Perplexity",
+  "Canva AI",
+  "Notion AI",
+  "Grammarly",
+  "Midjourney",
+  "DALL·E",
+  "GitHub Copilot",
+  "Cursor",
+  "Jasper",
+  "Zendesk AI / Helpdesk AI",
+  "Intercom Fin / AI",
+  "Other / custom",
+];
 
 const CONCERN_TAGS = [
   "Data privacy",
@@ -58,7 +88,10 @@ const CONCERN_TAGS = [
   "Bias & fairness",
 ];
 
-type PdfGate = null | { kind: "signin"; message: string } | { kind: "upgrade"; message: string };
+type PdfGate =
+  | null
+  | { kind: "signin"; message: string }
+  | { kind: "upgrade"; message: string };
 
 function phaseForSeconds(seconds: number) {
   if (seconds < 3) return "Warming up…";
@@ -74,11 +107,19 @@ function remainingForSeconds(seconds: number) {
   return `~${rem}s remaining`;
 }
 
-function GenerateButton({ loading, seconds }: { loading: boolean; seconds: number }) {
+function GenerateButton({
+  loading,
+  seconds,
+}: {
+  loading: boolean;
+  seconds: number;
+}) {
   return (
     <div className="flex flex-col items-end gap-2">
       <div className="relative">
-        {loading ? <div className="pointer-events-none absolute -inset-2 rounded-full bg-emerald-400/25 blur-xl animate-pulse" /> : null}
+        {loading ? (
+          <div className="pointer-events-none absolute -inset-2 rounded-full bg-emerald-400/25 blur-xl animate-pulse" />
+        ) : null}
 
         <button
           type="submit"
@@ -105,7 +146,14 @@ function GenerateButton({ loading, seconds }: { loading: boolean; seconds: numbe
 
           {loading ? (
             <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
-              <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2.6" className="opacity-25" />
+              <circle
+                cx="12"
+                cy="12"
+                r="9"
+                stroke="currentColor"
+                strokeWidth="2.6"
+                className="opacity-25"
+              />
               <path
                 d="M21 12a9 9 0 0 0-9-9"
                 stroke="currentColor"
@@ -161,7 +209,10 @@ function buildContentsText(result: GenerateResult | null): string {
     // e.g. "1. Purpose", "2) Scope", "Purpose", "## Purpose"
     const cleaned = l.replace(/^#+\s*/, "");
     const isNumbered = /^\d+(\.|\))\s+/.test(cleaned);
-    const isAllCapsShort = cleaned.length <= 60 && cleaned === cleaned.toUpperCase() && /[A-Z]/.test(cleaned);
+    const isAllCapsShort =
+      cleaned.length <= 60 &&
+      cleaned === cleaned.toUpperCase() &&
+      /[A-Z]/.test(cleaned);
     const looksLikeHeading =
       isNumbered ||
       cleaned.startsWith("Purpose") ||
@@ -196,6 +247,30 @@ function buildDisclaimerText(country: string): string {
   return country ? `${base}\nJurisdiction: ${country}.` : base;
 }
 
+/**
+ * ✅ NEW: keep payload shape exactly the same, but embed chosen tools into aiUsageNotes.
+ * We store tools separately in state for UI, and compose them into the notes at send-time.
+ */
+function composeAiUsageNotes(notes: string, tools: string[]): string {
+  const trimmedNotes = (notes || "").trim();
+
+  // Strip any previous "Tools used:" line to avoid duplicates
+  const withoutToolsLine = trimmedNotes
+    .split("\n")
+    .filter((l) => !/^tools used:/i.test(l.trim()))
+    .join("\n")
+    .trim();
+
+  const cleanTools = Array.from(new Set((tools || []).map((t) => t.trim()).filter(Boolean)));
+  if (cleanTools.length === 0) return withoutToolsLine;
+
+  const toolsLine = `Tools used: ${cleanTools.join(", ")}`;
+
+  // Put tools line at the top, then a blank line, then the rest (if any)
+  if (!withoutToolsLine) return toolsLine;
+  return `${toolsLine}\n\n${withoutToolsLine}`;
+}
+
 export default function WizardPage() {
   const [step, setStep] = useState<Step>(1);
 
@@ -212,6 +287,10 @@ export default function WizardPage() {
     approvedToolsText: "",
     mainConcerns: ["Data privacy", "Accuracy & hallucinations"],
   });
+
+  // ✅ NEW: common tools dropdown state (does not go to API as a separate field)
+  const [aiToolsUsed, setAiToolsUsed] = useState<string[]>([]);
+  const [aiToolPicker, setAiToolPicker] = useState<string>("ChatGPT");
 
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<GenerateResult | null>(null);
@@ -234,9 +313,23 @@ export default function WizardPage() {
   const toggleAiTag = (tag: string) => {
     setForm((prev) => {
       const exists = prev.aiUsageTags.includes(tag);
+
+      // ✅ Mutually exclusive: "None currently"
+      if (tag === "None currently") {
+        if (exists) {
+          // toggling off: allow empty selection (or keep previous? we’ll just remove it)
+          return { ...prev, aiUsageTags: prev.aiUsageTags.filter((t) => t !== tag) };
+        }
+        // toggling on: clear other selections
+        return { ...prev, aiUsageTags: ["None currently"] };
+      }
+
+      // If another tag is selected, remove "None currently"
+      const base = prev.aiUsageTags.filter((t) => t !== "None currently");
+
       return {
         ...prev,
-        aiUsageTags: exists ? prev.aiUsageTags.filter((t) => t !== tag) : [...prev.aiUsageTags, tag],
+        aiUsageTags: exists ? base.filter((t) => t !== tag) : [...base, tag],
       };
     });
   };
@@ -294,10 +387,16 @@ export default function WizardPage() {
     const interval = setInterval(() => setGenerateSeconds((s) => s + 1), 1000);
 
     try {
+      // ✅ Keep API shape the same, but inject tools into aiUsageNotes
+      const payloadToSend: WizardFormState = {
+        ...payload,
+        aiUsageNotes: composeAiUsageNotes(payload.aiUsageNotes, aiToolsUsed),
+      };
+
       const response = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(payloadToSend),
       });
 
       if (!response.ok) {
@@ -528,6 +627,9 @@ export default function WizardPage() {
       };
 
       setForm(demoForm);
+      setAiToolsUsed(["ChatGPT"]);
+      setAiToolPicker("ChatGPT");
+
       setStep(2);
       setDemoInitialised(true);
       void callGenerate(demoForm);
@@ -554,12 +656,25 @@ export default function WizardPage() {
     step === 1
       ? "Add business basics to tailor the draft."
       : step === 2
-        ? "Set risk posture and allowed tools."
-        : "Copy, preview PDF, and save to dashboard.";
+      ? "Set risk posture and allowed tools."
+      : "Copy, preview PDF, and save to dashboard.";
 
   const callbackUrl = "/wizard";
   const loginHref = `/login?callbackUrl=${encodeURIComponent(callbackUrl)}`;
   const pricingHref = `/pricing`;
+
+  // --- tool picker helpers (UI only) ---
+  const addPickedTool = () => {
+    const t = (aiToolPicker || "").trim();
+    if (!t) return;
+    setAiToolsUsed((prev) => (prev.includes(t) ? prev : [...prev, t]));
+  };
+
+  const removeTool = (t: string) => {
+    setAiToolsUsed((prev) => prev.filter((x) => x !== t));
+  };
+
+  const clearTools = () => setAiToolsUsed([]);
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-50">
@@ -651,8 +766,9 @@ export default function WizardPage() {
                             key={key}
                             type="button"
                             onClick={() => setForm((prev) => ({ ...prev, teamSize: key }))}
-                            className={`rounded-full border px-3 py-1 text-[11px] transition ${selected ? "border-slate-50 bg-slate-50 text-slate-950" : pillOff
-                              } text-left`}
+                            className={`rounded-full border px-3 py-1 text-[11px] transition ${
+                              selected ? "border-slate-50 bg-slate-50 text-slate-950" : pillOff
+                            } text-left`}
                           >
                             {TEAM_SIZE_LABELS[key]}
                           </button>
@@ -664,17 +780,26 @@ export default function WizardPage() {
 
                 <div>
                   <label className={label}>How do you use AI today?</label>
-                  <p className={`${hint} mb-2`}>Choose the options that fit, then add any extra detail.</p>
+                  <p className={`${hint} mb-2`}>
+                    Choose the options that fit, optionally pick common tools, then add any extra detail.
+                  </p>
 
-                  <div className="flex flex-wrap gap-2 mb-2">
+                  {/* Pills */}
+                  <div className="flex flex-wrap gap-2 mb-3">
                     {AI_USAGE_TAGS.map((tag) => {
                       const selected = form.aiUsageTags.includes(tag);
+                      const isNone = tag === "None currently";
                       return (
                         <button
                           key={tag}
                           type="button"
                           onClick={() => toggleAiTag(tag)}
-                          className={`${pillBase} ${selected ? pillOn : pillOff}`}
+                          className={[
+                            pillBase,
+                            selected ? pillOn : pillOff,
+                            isNone ? "border-amber-900/40" : "",
+                          ].join(" ")}
+                          title={isNone ? "Selecting this clears other usage types" : undefined}
                         >
                           {tag}
                         </button>
@@ -682,6 +807,71 @@ export default function WizardPage() {
                     })}
                   </div>
 
+                  {/* ✅ NEW: tool dropdown + chips */}
+                  <div className="rounded-xl border border-slate-800 bg-slate-950/30 p-3 mb-3">
+                    <div className="flex flex-col gap-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <div className="text-[11px] font-medium text-slate-200">Common AI tools used (optional)</div>
+                          <div className="text-[10px] text-slate-400">
+                            This helps the policy call out specific tools. It will be included in your “How we use AI” notes.
+                          </div>
+                        </div>
+
+                        {aiToolsUsed.length ? (
+                          <button
+                            type="button"
+                            onClick={clearTools}
+                            className="rounded-full border border-slate-700 bg-slate-900/40 px-3 py-1.5 text-[11px] text-slate-100 hover:bg-slate-900/70"
+                          >
+                            Clear
+                          </button>
+                        ) : null}
+                      </div>
+
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        <select
+                          className={inputSm}
+                          value={aiToolPicker}
+                          onChange={(e) => setAiToolPicker(e.target.value)}
+                        >
+                          {COMMON_AI_TOOLS.map((t) => (
+                            <option key={t} value={t}>
+                              {t}
+                            </option>
+                          ))}
+                        </select>
+
+                        <button
+                          type="button"
+                          onClick={addPickedTool}
+                          className="inline-flex items-center justify-center rounded-full bg-emerald-400 px-4 py-2.5 text-[11px] font-semibold text-slate-950 hover:bg-emerald-300"
+                        >
+                          Add tool
+                        </button>
+                      </div>
+
+                      {aiToolsUsed.length ? (
+                        <div className="flex flex-wrap gap-2 pt-1">
+                          {aiToolsUsed.map((t) => (
+                            <button
+                              key={t}
+                              type="button"
+                              onClick={() => removeTool(t)}
+                              className="rounded-full border border-emerald-900/40 bg-emerald-950/20 px-3 py-1 text-[11px] text-emerald-200 hover:bg-emerald-950/35"
+                              title="Remove"
+                            >
+                              {t} <span className="text-emerald-300/80">×</span>
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="text-[10px] text-slate-500">No tools selected.</div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Notes */}
                   <textarea
                     className={input}
                     rows={3}
@@ -689,6 +879,14 @@ export default function WizardPage() {
                     value={form.aiUsageNotes}
                     onChange={handleChange("aiUsageNotes")}
                   />
+
+                  {/* helper: show what will be sent (tools line + notes) */}
+                  {aiToolsUsed.length ? (
+                    <p className="mt-2 text-[10px] text-slate-400">
+                      This will be included in notes as:{" "}
+                      <span className="text-slate-200">Tools used: {aiToolsUsed.join(", ")}</span>
+                    </p>
+                  ) : null}
                 </div>
 
                 <div className="mt-4 flex items-center justify-between gap-3">
@@ -724,8 +922,8 @@ export default function WizardPage() {
                           level === "low"
                             ? "Low (mostly public)"
                             : level === "medium"
-                              ? "Medium"
-                              : "High (health, finance, IDs, etc.)";
+                            ? "Medium"
+                            : "High (health, finance, IDs, etc.)";
                         return (
                           <button
                             key={level}
@@ -746,7 +944,11 @@ export default function WizardPage() {
                       {(["strict", "balanced", "open"] as RiskPosture[]).map((p) => {
                         const selected = form.riskPosture === p;
                         const labelTxt =
-                          p === "strict" ? "Strict (tight rules)" : p === "balanced" ? "Balanced" : "Open (more flexible)";
+                          p === "strict"
+                            ? "Strict (tight rules)"
+                            : p === "balanced"
+                            ? "Balanced"
+                            : "Open (more flexible)";
                         return (
                           <button
                             key={p}
@@ -873,12 +1075,15 @@ export default function WizardPage() {
 
               {pdfGate && (
                 <div
-                  className={`rounded-xl border px-4 py-3 text-[11px] ${pdfGate.kind === "signin"
+                  className={`rounded-xl border px-4 py-3 text-[11px] ${
+                    pdfGate.kind === "signin"
                       ? "border-amber-900/40 bg-amber-950/25 text-amber-200"
                       : "border-emerald-900/40 bg-emerald-950/20 text-emerald-200"
-                    }`}
+                  }`}
                 >
-                  <div className="font-semibold mb-1">{pdfGate.kind === "signin" ? "Sign in required" : "Upgrade required"}</div>
+                  <div className="font-semibold mb-1">
+                    {pdfGate.kind === "signin" ? "Sign in required" : "Upgrade required"}
+                  </div>
                   <div className="text-slate-200/90">
                     {pdfGate.message}{" "}
                     {pdfGate.kind === "signin" ? (
