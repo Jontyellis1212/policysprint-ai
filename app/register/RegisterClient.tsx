@@ -33,8 +33,8 @@ export default function RegisterClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  // ✅ NEW: send new users to the themed dashboard by default
-  const defaultAfterSignup = "/dashboard/policies";
+  // ✅ UPDATED: new users land on the Wizard / Generator by default
+  const defaultAfterSignup = "/wizard";
 
   const callbackUrl = sanitizeCallbackUrl(
     searchParams.get("callbackUrl"),
@@ -101,7 +101,7 @@ export default function RegisterClient() {
         return;
       }
 
-      // 3) Go to app (themed default)
+      // 3) Go to app (Wizard / Generator default)
       router.push(callbackUrl);
       router.refresh();
     } catch (err: any) {
@@ -122,7 +122,7 @@ export default function RegisterClient() {
             Create account
           </h1>
           <p className="mt-1 text-sm text-slate-300">
-            Create your account — then you’ll land in your dashboard.
+            Create your account — then you’ll land in the policy generator.
           </p>
         </div>
 
