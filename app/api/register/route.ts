@@ -1,5 +1,3 @@
-// app/api/register/route.ts
-
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
@@ -49,7 +47,7 @@ export async function POST(req: Request) {
     // Hash password
     const passwordHash = await bcrypt.hash(password, 12);
 
-    // Create user
+    // Create user (unverified by default)
     const user = await prisma.user.create({
       data: {
         email,
@@ -64,10 +62,38 @@ export async function POST(req: Request) {
       },
     });
 
-    return NextResponse.json(
-      { ok: true, data: user },
-      { status: 201 }
-    );
+    // Send verification email (best-effort; don’t block account creation)
+    try {
+      const { sendEmail, verificationEmailTemplate, buildVerifyEmailUrl } = await import("@/lib/email");
+      const { randomToken, sha256, expiresInMinutes } = await import("@/lib/tokens");
+
+      const identifier = `verify:${email}`;
+      await prisma.verificationToken.deleteMany({ where: { identifier } });
+
+      const rawToken = randomToken(32);
+      const tokenHash = sha256(rawToken);
+
+      await prisma.verificationToken.create({
+        data: {
+          identifier,
+          token: tokenHash,
+          expires: expiresInMinutes(60 * 24),
+        },
+      });
+
+      const verifyUrl = buildVerifyEmailUrl(rawToken);
+
+      await sendEmail({
+        to: email,
+        subject: "Verify your email — PolicySprint",
+        html: verificationEmailTemplate({ verifyUrl }),
+        text: `Verify your email: ${verifyUrl}`,
+      });
+    } catch (e) {
+      console.error("[REGISTER_VERIFY_EMAIL_ERROR]", e);
+    }
+
+    return NextResponse.json({ ok: true, data: user }, { status: 201 });
   } catch (err) {
     console.error("[REGISTER_ERROR]", err);
     return NextResponse.json(

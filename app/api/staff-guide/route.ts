@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,27 +23,6 @@ async function requireUserId() {
   return { ok: true as const, userId };
 }
 
-async function requireProPlan(userId: string) {
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { plan: true },
-  });
-
-  if (!user) {
-    return { ok: false as const, res: fail("UNAUTHORIZED", "Unauthorized", 401) };
-  }
-
-  const plan = user.plan ?? "free";
-  if (plan !== "pro") {
-    return {
-      ok: false as const,
-      res: fail("PRO_REQUIRED", "Upgrade required", 403, { plan }),
-    };
-  }
-
-  return { ok: true as const };
-}
-
 type Body = {
   organisationName?: string;
   audienceDescription?: string;
@@ -56,11 +34,7 @@ export async function POST(req: NextRequest) {
   const u = await requireUserId();
   if (!u.ok) return u.res;
 
-  // 2) Must be Pro
-  const ent = await requireProPlan(u.userId);
-  if (!ent.ok) return ent.res;
-
-  // 3) Validate body
+  // 2) Validate body
   let body: Body | null = null;
   try {
     body = (await req.json()) as Body;
@@ -73,7 +47,7 @@ export async function POST(req: NextRequest) {
     return fail("BAD_REQUEST", "Missing or invalid policyText", 400);
   }
 
-  // 4) Env
+  // 3) Env
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
     return fail("SERVER_MISCONFIG", "OPENAI_API_KEY is not configured on the server.", 500);
@@ -121,7 +95,7 @@ Please produce a guide that:
 - Uses simple language and clear examples
   `.trim();
 
-  // 5) Call OpenAI
+  // 4) Call OpenAI
   try {
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",

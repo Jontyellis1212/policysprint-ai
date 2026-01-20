@@ -1,31 +1,22 @@
 // app/api/policy-pdf/preview/route.ts
 import { NextRequest, NextResponse } from "next/server";
+
+// IMPORTANT: policy PDF renderer lives in app/lib/pdf in your current setup
 import { renderPdfBuffer, type PdfPayload } from "@/app/lib/pdf/renderPolicyPdf";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function isNonEmptyString(v: unknown): v is string {
-  return typeof v === "string" && v.trim().length > 0;
-}
-
 /**
- * POST: JSON -> Styled PDF buffer (PREVIEW mode)
- * - No auth / no plan gating (wizard preview must always work)
- * - Hard-fail if policyText missing so we never silently produce a tiny fallback PDF
+ * POST /api/policy-pdf/preview
+ * Body: PdfPayload JSON
+ * Returns: application/pdf (inline)
  */
 export async function POST(req: NextRequest) {
   try {
     const payload = (await req.json()) as PdfPayload;
 
-    // Guardrail: no more silent "Policy body not provided."
-    if (!isNonEmptyString(payload.policyText)) {
-      return NextResponse.json(
-        { ok: false, error: "Missing policyText in preview payload." },
-        { status: 400 }
-      );
-    }
-
+    // Always preview mode for this endpoint
     const pdfBuffer = await renderPdfBuffer(payload, "preview");
 
     return new NextResponse(pdfBuffer as unknown as BodyInit, {
@@ -37,6 +28,7 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (err: any) {
+    console.error("[policy-pdf/preview] Failed", err);
     return NextResponse.json(
       { ok: false, error: "Failed to generate preview.", detail: err?.message ?? String(err) },
       { status: 500 }
@@ -45,8 +37,7 @@ export async function POST(req: NextRequest) {
 }
 
 /**
- * Keep GET for DB preview (optional) — but since you want wizard POST, we can keep it as-is.
- * For now: return 405 to avoid confusing the wizard and prevent old flows.
+ * GET is intentionally blocked: wizard should POST live payload
  */
 export async function GET() {
   return NextResponse.json({ ok: false, error: "Method Not Allowed" }, { status: 405 });

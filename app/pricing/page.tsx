@@ -228,7 +228,7 @@ export default async function PricingPage() {
                         </form>
                       ) : (
                         <Link
-                          href="/login?next=/pricing"
+                          href="/login?callbackUrl=%2Fpricing"
                           className="inline-flex w-full items-center justify-center rounded-full px-4 py-2.5 text-sm font-medium transition bg-emerald-500 text-slate-950 hover:bg-emerald-400"
                         >
                           Log in to upgrade

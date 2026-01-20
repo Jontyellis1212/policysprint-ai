@@ -62,17 +62,18 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       const userId = String(token.sub);
       (session.user as any).id = userId;
 
-      // ✅ Only query fields that definitely exist in your current schema
       try {
         const dbUser = await prisma.user.findUnique({
           where: { id: userId },
-          select: { plan: true },
+          select: { plan: true, emailVerified: true },
         });
 
         (session.user as any).plan = dbUser?.plan ?? "free";
+        (session.user as any).emailVerified = Boolean(dbUser?.emailVerified);
       } catch {
-        // Don't break auth if DB hiccups
         (session.user as any).plan = (session.user as any).plan ?? "free";
+        (session.user as any).emailVerified =
+          (session.user as any).emailVerified ?? false;
       }
 
       return session;

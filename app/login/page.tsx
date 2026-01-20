@@ -99,6 +99,15 @@ function LoginInner() {
                 className="w-full rounded-lg border border-slate-700 bg-slate-950/60 px-3 py-2 text-sm text-slate-50 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-400/70 focus:border-emerald-400/70"
               />
             </label>
+
+            <div className="flex items-center justify-end">
+              <Link
+                href="/forgot-password"
+                className="text-xs font-semibold text-emerald-300 hover:underline"
+              >
+                Forgot password?
+              </Link>
+            </div>
           </div>
 
           <button

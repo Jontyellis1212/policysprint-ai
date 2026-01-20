@@ -9,6 +9,11 @@ import PdfPreviewClient from "../components/PdfPreviewClient";
 const LAST_POLICY_KEY = "policysprint:lastPolicy";
 const LAST_BUSINESS_KEY = "policysprint:lastBusinessName";
 
+type GateError = {
+  ok?: boolean;
+  error?: { code?: string; message?: string; details?: any };
+};
+
 export default function QuizPage() {
   const [numQuestions, setNumQuestions] = useState<number>(5);
   const [policyText, setPolicyText] = useState<string>("");
@@ -31,6 +36,11 @@ export default function QuizPage() {
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [pdfError, setPdfError] = useState<string | null>(null);
   const [downloadingPdf, setDownloadingPdf] = useState<boolean>(false);
+
+  // ✅ download-only gating banners
+  const [upgradeRequired, setUpgradeRequired] = useState<boolean>(false);
+  const [emailNotVerified, setEmailNotVerified] = useState<boolean>(false);
+  const [resendSent, setResendSent] = useState<boolean>(false);
 
   const canBuildPdf = useMemo(() => quiz.trim().length > 0, [quiz]);
 
@@ -83,6 +93,9 @@ export default function QuizPage() {
 
     // Reset PDF preview whenever we regenerate quiz
     setPdfError(null);
+    setUpgradeRequired(false);
+    setEmailNotVerified(false);
+    setResendSent(false);
     if (pdfUrl) URL.revokeObjectURL(pdfUrl);
     setPdfUrl(null);
 
@@ -147,12 +160,29 @@ export default function QuizPage() {
     }
   }
 
+  async function resendVerification() {
+    setResendSent(false);
+    try {
+      const res = await fetch("/api/email/verify/resend", { method: "POST" });
+      if (res.ok) setResendSent(true);
+    } catch {
+      // silent
+    }
+  }
+
   async function buildQuizPdf(mode: "preview" | "download") {
     if (!quiz.trim()) return;
 
     setPdfLoading(mode === "preview");
     setDownloadingPdf(mode === "download");
     setPdfError(null);
+
+    // Only clear banners when trying again
+    if (mode === "download") {
+      setUpgradeRequired(false);
+      setEmailNotVerified(false);
+      setResendSent(false);
+    }
 
     // Persist business name
     try {
@@ -177,6 +207,27 @@ export default function QuizPage() {
         },
         body: JSON.stringify(payload),
       });
+
+      if (res.status === 403) {
+        let parsed: GateError | null = null;
+        try {
+          parsed = (await res.json()) as GateError;
+        } catch {}
+
+        const code = parsed?.error?.code;
+
+        if (mode === "download" && code === "EMAIL_NOT_VERIFIED") {
+          setEmailNotVerified(true);
+          return;
+        }
+
+        if (mode === "download" && code === "PRO_REQUIRED") {
+          setUpgradeRequired(true);
+          return;
+        }
+
+        throw new Error(parsed?.error?.message || "Forbidden.");
+      }
 
       if (!res.ok) {
         const txt = await res.text().catch(() => "");
@@ -434,12 +485,59 @@ export default function QuizPage() {
                   </button>
                 </div>
 
+                {/* ✅ Email verification banner (download only) */}
+                {emailNotVerified ? (
+                  <div className="rounded-xl border border-emerald-900/40 bg-emerald-950/20 px-3 py-2 text-[12px] text-emerald-200">
+                    <div className="font-medium">Verify your email to download</div>
+                    <div className="mt-0.5 opacity-90">
+                      We sent you a verification email when you signed up.
+                    </div>
+
+                    {resendSent ? (
+                      <div className="mt-2 text-emerald-300 font-medium">
+                        Verification email resent ✓
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={resendVerification}
+                        className="mt-2 inline-flex rounded-full bg-emerald-500 px-3 py-1.5 text-[12px] font-semibold text-slate-950 hover:bg-emerald-400"
+                      >
+                        Resend verification email
+                      </button>
+                    )}
+                  </div>
+                ) : null}
+
+                {/* ✅ Upgrade banner: download only */}
+                {upgradeRequired ? (
+                  <div className="rounded-xl border border-amber-900/40 bg-amber-950/20 px-3 py-2 text-[12px] text-amber-200">
+                    <div className="font-medium">Upgrade to Pro to download PDFs</div>
+                    <div className="mt-0.5 opacity-90">
+                      You can preview the PDF anytime, but downloads are available on Pro.
+                    </div>
+                    <div className="mt-2">
+                      <Link
+                        href="/pricing"
+                        className="inline-flex rounded-full bg-amber-400 px-3 py-1.5 text-[12px] font-semibold text-slate-950 hover:bg-amber-300"
+                      >
+                        Upgrade to Pro
+                      </Link>
+                    </div>
+                  </div>
+                ) : null}
+
                 <div className="flex items-center gap-2">
                   <button type="button" onClick={() => buildQuizPdf("preview")} disabled={!canBuildPdf || pdfLoading} className={btnSecondary}>
                     {pdfLoading ? "Building…" : "Refresh preview"}
                   </button>
 
-                  <button type="button" onClick={() => buildQuizPdf("download")} disabled={!canBuildPdf || downloadingPdf} className={btnSecondary}>
+                  <button
+                    type="button"
+                    onClick={() => buildQuizPdf("download")}
+                    disabled={!canBuildPdf || downloadingPdf}
+                    className={btnSecondary}
+                  >
                     {downloadingPdf ? "Preparing…" : "Download PDF"}
                   </button>
                 </div>
