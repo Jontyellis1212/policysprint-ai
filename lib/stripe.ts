@@ -9,5 +9,5 @@ function requiredEnv(name: string) {
 const secretKey = requiredEnv("STRIPE_SECRET_KEY");
 
 export const stripe = new Stripe(secretKey, {
-  apiVersion: "2025-01-27.acacia",
+  apiVersion: "2025-12-15.clover",
 });
