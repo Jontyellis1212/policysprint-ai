@@ -1,23 +1,23 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 
 type Props = {
   policyText: string;
   businessName?: string;
   country?: string;
   industry?: string;
-  upgradeHref?: string;
+  upgradeHref?: string; // optional override
 };
 
-type ApiErrorShape = {
-  ok?: boolean;
-  error?: {
-    code?: string;
-    message?: string;
-    details?: any;
-  };
-};
+type ApiErrorShape =
+  | { ok?: boolean; error?: { code?: string; message?: string; details?: any } }
+  | { error?: string };
+
+function getCode(parsed: any): string | undefined {
+  return parsed?.error?.code;
+}
 
 export default function DownloadPolicyPdfButton({
   policyText,
@@ -27,9 +27,15 @@ export default function DownloadPolicyPdfButton({
   upgradeHref,
 }: Props) {
   const [isDownloading, setIsDownloading] = useState(false);
-  const [upgradeRequired, setUpgradeRequired] = useState(false);
-  const [emailNotVerified, setEmailNotVerified] = useState(false);
+
+  // gates
+  const [needsPro, setNeedsPro] = useState(false);
+  const [needsVerify, setNeedsVerify] = useState(false);
+
+  // resend UX
+  const [resendLoading, setResendLoading] = useState(false);
   const [resendSent, setResendSent] = useState(false);
+
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const safeFilename = useMemo(() => {
@@ -38,12 +44,26 @@ export default function DownloadPolicyPdfButton({
     return `${base}.pdf`;
   }, [businessName]);
 
+  async function resendVerification() {
+    if (resendLoading) return;
+    setResendSent(false);
+    setResendLoading(true);
+    try {
+      const res = await fetch("/api/email/verify/resend", { method: "POST" });
+      if (res.ok) setResendSent(true);
+    } catch {
+      // keep quiet; we show a generic error below if needed
+    } finally {
+      setResendLoading(false);
+    }
+  }
+
   async function handleDownload() {
     if (!policyText.trim() || isDownloading) return;
 
     setErrorMsg(null);
-    setUpgradeRequired(false);
-    setEmailNotVerified(false);
+    setNeedsPro(false);
+    setNeedsVerify(false);
     setResendSent(false);
 
     try {
@@ -52,6 +72,7 @@ export default function DownloadPolicyPdfButton({
       const res = await fetch("/api/policy-pdf", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        // NOTE: No x-pdf-mode header => defaults to "download" in your API
         body: JSON.stringify({
           policyText,
           businessName,
@@ -60,21 +81,28 @@ export default function DownloadPolicyPdfButton({
         }),
       });
 
+      // Handle gating cleanly
+      if (res.status === 401) {
+        // let middleware/auth flow handle sign-in; send them to login with callback
+        const cb = encodeURIComponent("/policies");
+        window.location.href = `/login?callbackUrl=${cb}`;
+        return;
+      }
+
       if (res.status === 403) {
         let parsed: ApiErrorShape | null = null;
         try {
           parsed = (await res.json()) as ApiErrorShape;
         } catch {}
 
-        const code = parsed?.error?.code;
+        const code = getCode(parsed);
 
         if (code === "EMAIL_NOT_VERIFIED") {
-          setEmailNotVerified(true);
+          setNeedsVerify(true);
           return;
         }
-
         if (code === "PRO_REQUIRED") {
-          setUpgradeRequired(true);
+          setNeedsPro(true);
           return;
         }
 
@@ -83,6 +111,8 @@ export default function DownloadPolicyPdfButton({
       }
 
       if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        console.error("Failed to generate PDF", res.status, text);
         setErrorMsg("Something went wrong generating the PDF. Please try again.");
         return;
       }
@@ -104,67 +134,70 @@ export default function DownloadPolicyPdfButton({
     }
   }
 
-  async function resendVerification() {
-    setResendSent(false);
-    try {
-      const res = await fetch("/api/email/verify/resend", { method: "POST" });
-      if (res.ok) setResendSent(true);
-    } catch {}
-  }
-
   const disabled = !policyText.trim() || isDownloading;
+  const showGate = needsVerify || needsPro;
 
   return (
     <div className="flex flex-col gap-2">
-      {/* Email not verified */}
-      {emailNotVerified && (
-        <div className="rounded-xl border border-emerald-900/40 bg-emerald-950/20 px-3 py-2 text-[12px] text-emerald-200">
-          <div className="font-medium">Verify your email to download</div>
-          <div className="mt-0.5 opacity-90">
-            We sent you a verification email when you signed up.
+      {showGate ? (
+        <div className="rounded-xl border border-slate-800 bg-slate-900/40 px-3 py-2 text-[12px] text-slate-200">
+          <div className="font-medium text-slate-50">Downloads are locked</div>
+
+          <div className="mt-1 space-y-1 text-slate-300">
+            {needsVerify ? (
+              <div>
+                • Verify your email to unlock downloads.
+                <div className="text-[11px] text-slate-400">
+                  Check your inbox (and spam). You can resend a new link anytime.
+                </div>
+              </div>
+            ) : null}
+
+            {needsPro ? (
+              <div>
+                • Upgrade to Pro to unlock downloads.
+                <div className="text-[11px] text-slate-400">
+                  Previews still work — downloads are a Pro feature.
+                </div>
+              </div>
+            ) : null}
           </div>
 
-          {resendSent ? (
-            <div className="mt-2 text-emerald-300 font-medium">
-              Verification email resent ✓
-            </div>
-          ) : (
-            <button
-              type="button"
-              onClick={resendVerification}
-              className="mt-2 inline-flex rounded-full bg-emerald-500 px-3 py-1.5 text-[12px] font-semibold text-slate-950 hover:bg-emerald-400"
-            >
-              Resend verification email
-            </button>
-          )}
-        </div>
-      )}
+          <div className="mt-2 flex flex-wrap gap-2">
+            {needsVerify ? (
+              resendSent ? (
+                <span className="inline-flex items-center rounded-full border border-emerald-400/30 bg-emerald-950/20 px-3 py-1.5 text-[12px] font-medium text-emerald-200">
+                  Verification email resent ✓
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={resendVerification}
+                  disabled={resendLoading}
+                  className="inline-flex rounded-full bg-emerald-500 px-3 py-1.5 text-[12px] font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
+                >
+                  {resendLoading ? "Sending…" : "Resend verification"}
+                </button>
+              )
+            ) : null}
 
-      {/* Pro required */}
-      {upgradeRequired && (
-        <div className="rounded-xl border border-amber-900/40 bg-amber-950/20 px-3 py-2 text-[12px] text-amber-200">
-          <div className="font-medium">Upgrade to Pro to download PDFs</div>
-          <div className="mt-0.5 opacity-90">
-            You can preview anytime. Downloads require Pro.
+            {needsPro ? (
+              <Link
+                href={upgradeHref ?? "/pricing"}
+                className="inline-flex rounded-full border border-slate-700 bg-slate-950/40 px-3 py-1.5 text-[12px] font-medium text-slate-100 hover:bg-slate-900/60"
+              >
+                Upgrade to Pro
+              </Link>
+            ) : null}
           </div>
-
-          {upgradeHref && (
-            <a
-              href={upgradeHref}
-              className="mt-2 inline-flex rounded-full bg-amber-400 px-3 py-1.5 text-[12px] font-semibold text-slate-950 hover:bg-amber-300"
-            >
-              Upgrade to Pro
-            </a>
-          )}
         </div>
-      )}
+      ) : null}
 
-      {/* Generic error */}
-      {errorMsg && !upgradeRequired && !emailNotVerified && (
-        <div className="rounded-xl border border-rose-900/40 bg-rose-950/20 px-3 py-2 text-[12px] text-rose-200">
+      {errorMsg && !showGate ? (
+        <div className="rounded-xl border border-rose-900/40 bg-rose-950/30 px-3 py-2 text-[12px] text-rose-200">
           {errorMsg}
         </div>
-      )}
+      ) : null}
 
       <button
         type="button"
