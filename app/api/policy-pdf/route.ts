@@ -25,15 +25,14 @@ export async function POST(req: NextRequest) {
   const mode: "download" | "preview" =
     modeHeader === "preview" ? "preview" : "download";
 
-  // Gate DOWNLOAD only (email verified + optional pro)
+  // ✅ Gate DOWNLOAD only: email verified + (optional) pro
   if (mode === "download") {
     const user = await prisma.user.findUnique({
       where: { email },
-      select: { plan: true, emailVerified: true },
+      select: { emailVerified: true, plan: true },
     });
 
-    const verified = Boolean(user?.emailVerified);
-    if (!verified) {
+    if (!user?.emailVerified) {
       return NextResponse.json(
         {
           ok: false,

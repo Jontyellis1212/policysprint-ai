@@ -1,3 +1,4 @@
+// app/api/quiz-pdf/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
@@ -11,7 +12,7 @@ export const dynamic = "force-dynamic";
  * Header: x-pdf-mode: "preview" | "download" (default download)
  *
  * Preview: PUBLIC (no auth)
- * Download: AUTH + VERIFIED + PRO ONLY
+ * Download: AUTH + EMAIL VERIFIED + PRO ONLY
  */
 export async function POST(req: NextRequest) {
   try {
@@ -33,11 +34,10 @@ export async function POST(req: NextRequest) {
 
       const user = await prisma.user.findUnique({
         where: { email },
-        select: { plan: true, emailVerified: true },
+        select: { emailVerified: true, plan: true },
       });
 
-      const verified = Boolean(user?.emailVerified);
-      if (!verified) {
+      if (!user?.emailVerified) {
         return NextResponse.json(
           {
             ok: false,
@@ -55,11 +55,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json(
           {
             ok: false,
-            error: {
-              code: "PRO_REQUIRED",
-              message: "Upgrade required",
-              details: { plan },
-            },
+            error: { code: "PRO_REQUIRED", message: "Upgrade required", details: { plan } },
           },
           { status: 403 }
         );
