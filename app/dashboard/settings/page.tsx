@@ -1,3 +1,4 @@
+// app/dashboard/settings/page.tsx
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 
@@ -12,31 +13,44 @@ export default async function DashboardSettingsPage() {
   const email = typeof session?.user?.email === "string" ? session.user.email : null;
   const name = typeof session?.user?.name === "string" ? session.user.name : null;
 
+  const card = "rounded-2xl border border-slate-800 bg-slate-900/40 backdrop-blur p-6 shadow-sm";
+  const subCard = "rounded-xl border border-slate-800 bg-slate-950/30 px-4 py-3";
+  const label = "text-xs text-slate-400";
+  const value = "mt-1 text-sm text-slate-100";
+  const mono = "mt-1 text-sm font-mono text-slate-100";
+
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+    <div className={card}>
+      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
         Settings
       </p>
 
-      <h1 className="mt-2 text-2xl font-semibold text-slate-900">Account</h1>
-      <p className="mt-1 text-sm text-slate-600">
-        This is a protected dashboard page. We’ll add profile/org fields here next.
+      <h1 className="mt-2 text-2xl font-semibold text-slate-50">Account</h1>
+      <p className="mt-1 text-sm text-slate-300">
+        Manage your account details. We’ll add profile/org fields here next.
       </p>
 
       <div className="mt-6 grid gap-3">
-        <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-          <p className="text-xs text-slate-500">User ID</p>
-          <p className="mt-1 text-sm font-mono text-slate-900">{userId}</p>
+        <div className={subCard}>
+          <p className={label}>User ID</p>
+          <p className={mono}>{userId}</p>
         </div>
 
-        <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-          <p className="text-xs text-slate-500">Email</p>
-          <p className="mt-1 text-sm text-slate-900">{email ?? "—"}</p>
+        <div className={subCard}>
+          <p className={label}>Email</p>
+          <p className={value}>{email ?? "—"}</p>
         </div>
 
-        <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-          <p className="text-xs text-slate-500">Name</p>
-          <p className="mt-1 text-sm text-slate-900">{name ?? "—"}</p>
+        <div className={subCard}>
+          <p className={label}>Name</p>
+          <p className={value}>{name ?? "—"}</p>
+        </div>
+      </div>
+
+      <div className="mt-6 rounded-xl border border-emerald-900/40 bg-emerald-950/20 px-4 py-3 text-[11px] text-emerald-200">
+        <div className="font-semibold mb-1">Next</div>
+        <div className="text-slate-200/90">
+          Add org name, team size, and default policy settings — so the wizard can pre-fill values automatically.
         </div>
       </div>
     </div>
