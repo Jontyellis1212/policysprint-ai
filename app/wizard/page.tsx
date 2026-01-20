@@ -18,7 +18,6 @@ interface WizardFormState {
   industry: string;
   teamSize: TeamSizeOption;
 
-  // What types of AI they use + details
   aiUsageNotes: string;
   aiUsageTags: string[];
 
@@ -50,7 +49,6 @@ const TEAM_SIZE_LABELS: Record<TeamSizeOption, string> = {
   enterprise: "250+ people",
 };
 
-// ✅ UPDATED: adds "None currently" (mutually exclusive) + keeps your existing tags
 const AI_USAGE_TAGS = [
   "None currently",
   "Marketing & content",
@@ -60,7 +58,6 @@ const AI_USAGE_TAGS = [
   "Other",
 ];
 
-// ✅ NEW: dropdown of common tools (this does NOT change your API payload shape)
 const COMMON_AI_TOOLS = [
   "ChatGPT",
   "Microsoft Copilot",
@@ -88,10 +85,11 @@ const CONCERN_TAGS = [
   "Bias & fairness",
 ];
 
-type PdfGate =
-  | null
-  | { kind: "signin"; message: string }
-  | { kind: "upgrade"; message: string };
+type DownloadGateState = {
+  signinRequired: boolean;
+  upgradeRequired: boolean;
+  message: string | null;
+};
 
 function phaseForSeconds(seconds: number) {
   if (seconds < 3) return "Warming up…";
@@ -107,13 +105,7 @@ function remainingForSeconds(seconds: number) {
   return `~${rem}s remaining`;
 }
 
-function GenerateButton({
-  loading,
-  seconds,
-}: {
-  loading: boolean;
-  seconds: number;
-}) {
+function GenerateButton({ loading, seconds }: { loading: boolean; seconds: number }) {
   return (
     <div className="flex flex-col items-end gap-2">
       <div className="relative">
@@ -184,21 +176,13 @@ function GenerateButton({
   );
 }
 
-/**
- * Best-effort "Contents" builder for the PDF cover / TOC.
- * - Uses any sample sections if present
- * - Falls back to extracting headings from the generated policy text
- */
 function buildContentsText(result: GenerateResult | null): string {
   const sample = result?.policyPreview?.sampleSection?.filter(Boolean) ?? [];
-  if (sample.length) {
-    return sample.map((s, i) => `${i + 1}. ${s}`).join("\n");
-  }
+  if (sample.length) return sample.map((s, i) => `${i + 1}. ${s}`).join("\n");
 
   const text = result?.fullText ?? "";
   if (!text.trim()) return "";
 
-  // Extract heading-like lines (common patterns)
   const lines = text
     .split("\n")
     .map((l) => l.trim())
@@ -206,13 +190,11 @@ function buildContentsText(result: GenerateResult | null): string {
 
   const headings: string[] = [];
   for (const l of lines) {
-    // e.g. "1. Purpose", "2) Scope", "Purpose", "## Purpose"
     const cleaned = l.replace(/^#+\s*/, "");
     const isNumbered = /^\d+(\.|\))\s+/.test(cleaned);
     const isAllCapsShort =
-      cleaned.length <= 60 &&
-      cleaned === cleaned.toUpperCase() &&
-      /[A-Z]/.test(cleaned);
+      cleaned.length <= 60 && cleaned === cleaned.toUpperCase() && /[A-Z]/.test(cleaned);
+
     const looksLikeHeading =
       isNumbered ||
       cleaned.startsWith("Purpose") ||
@@ -228,7 +210,6 @@ function buildContentsText(result: GenerateResult | null): string {
       isAllCapsShort;
 
     if (looksLikeHeading) {
-      // Remove leading numbering if present
       const h = cleaned.replace(/^\d+(\.|\))\s+/, "").trim();
       if (h && !headings.includes(h)) headings.push(h);
     }
@@ -243,18 +224,12 @@ function buildDisclaimerText(country: string): string {
   const base =
     "This document is a general template for information purposes only and does not constitute legal advice. " +
     "You should obtain advice from a qualified lawyer before adopting or relying on this policy.";
-  // Keep it simple; your preview route can format this however it wants.
   return country ? `${base}\nJurisdiction: ${country}.` : base;
 }
 
-/**
- * ✅ NEW: keep payload shape exactly the same, but embed chosen tools into aiUsageNotes.
- * We store tools separately in state for UI, and compose them into the notes at send-time.
- */
 function composeAiUsageNotes(notes: string, tools: string[]): string {
   const trimmedNotes = (notes || "").trim();
 
-  // Strip any previous "Tools used:" line to avoid duplicates
   const withoutToolsLine = trimmedNotes
     .split("\n")
     .filter((l) => !/^tools used:/i.test(l.trim()))
@@ -265,8 +240,6 @@ function composeAiUsageNotes(notes: string, tools: string[]): string {
   if (cleanTools.length === 0) return withoutToolsLine;
 
   const toolsLine = `Tools used: ${cleanTools.join(", ")}`;
-
-  // Put tools line at the top, then a blank line, then the rest (if any)
   if (!withoutToolsLine) return toolsLine;
   return `${toolsLine}\n\n${withoutToolsLine}`;
 }
@@ -288,7 +261,6 @@ export default function WizardPage() {
     mainConcerns: ["Data privacy", "Accuracy & hallucinations"],
   });
 
-  // ✅ NEW: common tools dropdown state (does not go to API as a separate field)
   const [aiToolsUsed, setAiToolsUsed] = useState<string[]>([]);
   const [aiToolPicker, setAiToolPicker] = useState<string>("ChatGPT");
 
@@ -300,31 +272,32 @@ export default function WizardPage() {
   const [downloadingPdf, setDownloadingPdf] = useState(false);
 
   const [generateSeconds, setGenerateSeconds] = useState(0);
-  const [pdfGate, setPdfGate] = useState<PdfGate>(null);
+
+  // ✅ Unified download gating
+  const [downloadGate, setDownloadGate] = useState<DownloadGateState>({
+    signinRequired: false,
+    upgradeRequired: false,
+    message: null,
+  });
 
   // Preview state
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
 
-  // Abort in-flight preview requests if user regenerates quickly
   const previewAbortRef = useRef<AbortController | null>(null);
 
   const toggleAiTag = (tag: string) => {
     setForm((prev) => {
       const exists = prev.aiUsageTags.includes(tag);
 
-      // ✅ Mutually exclusive: "None currently"
       if (tag === "None currently") {
         if (exists) {
-          // toggling off: allow empty selection (or keep previous? we’ll just remove it)
           return { ...prev, aiUsageTags: prev.aiUsageTags.filter((t) => t !== tag) };
         }
-        // toggling on: clear other selections
         return { ...prev, aiUsageTags: ["None currently"] };
       }
 
-      // If another tag is selected, remove "None currently"
       const base = prev.aiUsageTags.filter((t) => t !== "None currently");
 
       return {
@@ -372,7 +345,9 @@ export default function WizardPage() {
     setErrorMessage(null);
     setResult(null);
     setCopied(false);
-    setPdfGate(null);
+
+    // Reset gates
+    setDownloadGate({ signinRequired: false, upgradeRequired: false, message: null });
 
     // reset preview state on regenerate
     setPreviewError(null);
@@ -387,7 +362,6 @@ export default function WizardPage() {
     const interval = setInterval(() => setGenerateSeconds((s) => s + 1), 1000);
 
     try {
-      // ✅ Keep API shape the same, but inject tools into aiUsageNotes
       const payloadToSend: WizardFormState = {
         ...payload,
         aiUsageNotes: composeAiUsageNotes(payload.aiUsageNotes, aiToolsUsed),
@@ -448,12 +422,18 @@ export default function WizardPage() {
 
   const fullPolicyTextForSave = result?.fullText || "";
 
+  const callbackUrl = "/wizard";
+  const loginHref = `/login?callbackUrl=${encodeURIComponent(callbackUrl)}`;
+  const pricingHref = `/pricing`;
+
   const handleDownloadPdf = async () => {
     if (!result?.fullText) return;
 
     try {
       setDownloadingPdf(true);
-      setPdfGate(null);
+
+      // Clear only when trying again
+      setDownloadGate({ signinRequired: false, upgradeRequired: false, message: null });
 
       const payload = {
         businessName: form.businessName,
@@ -469,11 +449,20 @@ export default function WizardPage() {
       });
 
       if (res.status === 401) {
-        setPdfGate({ kind: "signin", message: "Please sign in to download PDFs." });
+        setDownloadGate({
+          signinRequired: true,
+          upgradeRequired: false,
+          message: "Please sign in to download PDFs.",
+        });
         return;
       }
+
       if (res.status === 403) {
-        setPdfGate({ kind: "upgrade", message: "PDF export is a Pro feature. Upgrade to download PDFs." });
+        setDownloadGate({
+          signinRequired: false,
+          upgradeRequired: true,
+          message: "PDF export is included with Pro. Upgrade to download your policy PDF.",
+        });
         return;
       }
 
@@ -504,11 +493,6 @@ export default function WizardPage() {
     }
   };
 
-  /**
-   * Build a robust preview payload for the styled preview renderer.
-   * IMPORTANT: We send title/businessName/contentsText/policyText/disclaimerText so the route
-   * does NOT fall back to defaults.
-   */
   const buildPreviewPayload = () => {
     const title = policyTitleForSave;
     const businessName = form.businessName || "Your business";
@@ -530,7 +514,6 @@ export default function WizardPage() {
     };
   };
 
-  // Build preview PDF (styled)
   const buildPreview = async () => {
     const policyText = (result?.fullText || "").trim();
     if (!policyText) return;
@@ -538,7 +521,6 @@ export default function WizardPage() {
     setPreviewLoading(true);
     setPreviewError(null);
 
-    // Cancel any in-flight preview
     previewAbortRef.current?.abort();
     const controller = new AbortController();
     previewAbortRef.current = controller;
@@ -566,11 +548,9 @@ export default function WizardPage() {
         return url;
       });
     } catch (e: any) {
-      // Abort errors are expected when regenerating quickly
       if (e?.name === "AbortError") return;
       setPreviewError(e?.message || "Failed to generate preview.");
     } finally {
-      // Only clear loading if this request is still the active one
       if (previewAbortRef.current === controller) {
         previewAbortRef.current = null;
         setPreviewLoading(false);
@@ -578,7 +558,6 @@ export default function WizardPage() {
     }
   };
 
-  // Auto-build preview when we land on Step 3 with a policy
   useEffect(() => {
     if (step !== 3) return;
     if (!result?.success) return;
@@ -590,7 +569,6 @@ export default function WizardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, result?.success, result?.fullText]);
 
-  // Cleanup blob url + in-flight requests on unmount
   useEffect(() => {
     return () => {
       previewAbortRef.current?.abort();
@@ -659,11 +637,6 @@ export default function WizardPage() {
       ? "Set risk posture and allowed tools."
       : "Copy, preview PDF, and save to dashboard.";
 
-  const callbackUrl = "/wizard";
-  const loginHref = `/login?callbackUrl=${encodeURIComponent(callbackUrl)}`;
-  const pricingHref = `/pricing`;
-
-  // --- tool picker helpers (UI only) ---
   const addPickedTool = () => {
     const t = (aiToolPicker || "").trim();
     if (!t) return;
@@ -675,6 +648,8 @@ export default function WizardPage() {
   };
 
   const clearTools = () => setAiToolsUsed([]);
+
+  const showGateCard = downloadGate.signinRequired || downloadGate.upgradeRequired;
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-50">
@@ -784,7 +759,6 @@ export default function WizardPage() {
                     Choose the options that fit, optionally pick common tools, then add any extra detail.
                   </p>
 
-                  {/* Pills */}
                   <div className="flex flex-wrap gap-2 mb-3">
                     {AI_USAGE_TAGS.map((tag) => {
                       const selected = form.aiUsageTags.includes(tag);
@@ -807,14 +781,14 @@ export default function WizardPage() {
                     })}
                   </div>
 
-                  {/* ✅ NEW: tool dropdown + chips */}
                   <div className="rounded-xl border border-slate-800 bg-slate-950/30 p-3 mb-3">
                     <div className="flex flex-col gap-2">
                       <div className="flex items-center justify-between gap-2">
                         <div>
                           <div className="text-[11px] font-medium text-slate-200">Common AI tools used (optional)</div>
                           <div className="text-[10px] text-slate-400">
-                            This helps the policy call out specific tools. It will be included in your “How we use AI” notes.
+                            This helps the policy call out specific tools. It will be included in your “How we use AI”
+                            notes.
                           </div>
                         </div>
 
@@ -830,11 +804,7 @@ export default function WizardPage() {
                       </div>
 
                       <div className="flex flex-col sm:flex-row gap-2">
-                        <select
-                          className={inputSm}
-                          value={aiToolPicker}
-                          onChange={(e) => setAiToolPicker(e.target.value)}
-                        >
+                        <select className={inputSm} value={aiToolPicker} onChange={(e) => setAiToolPicker(e.target.value)}>
                           {COMMON_AI_TOOLS.map((t) => (
                             <option key={t} value={t}>
                               {t}
@@ -871,7 +841,6 @@ export default function WizardPage() {
                     </div>
                   </div>
 
-                  {/* Notes */}
                   <textarea
                     className={input}
                     rows={3}
@@ -880,7 +849,6 @@ export default function WizardPage() {
                     onChange={handleChange("aiUsageNotes")}
                   />
 
-                  {/* helper: show what will be sent (tools line + notes) */}
                   {aiToolsUsed.length ? (
                     <p className="mt-2 text-[10px] text-slate-400">
                       This will be included in notes as:{" "}
@@ -944,11 +912,7 @@ export default function WizardPage() {
                       {(["strict", "balanced", "open"] as RiskPosture[]).map((p) => {
                         const selected = form.riskPosture === p;
                         const labelTxt =
-                          p === "strict"
-                            ? "Strict (tight rules)"
-                            : p === "balanced"
-                            ? "Balanced"
-                            : "Open (more flexible)";
+                          p === "strict" ? "Strict (tight rules)" : p === "balanced" ? "Balanced" : "Open (more flexible)";
                         return (
                           <button
                             key={p}
@@ -1052,10 +1016,10 @@ export default function WizardPage() {
                 <div>
                   <h1 className="text-xl md:text-2xl font-semibold text-slate-50 mb-1">Your AI policy draft is ready</h1>
                   <p className="text-xs md:text-sm text-slate-300 max-w-2xl">
-                    Copy this into your own document, tweak the language, and have your lawyer review it before rolling
-                    it out to staff.
+                    Copy this into your own document, tweak the language, and have your lawyer review it before rolling it out to staff.
                   </p>
                 </div>
+
                 <div className="flex flex-wrap gap-2 items-center">
                   <button type="button" onClick={handleDownloadPdf} className={btnSecondary} disabled={downloadingPdf}>
                     {downloadingPdf ? "Preparing PDF…" : "Download PDF"}
@@ -1073,31 +1037,54 @@ export default function WizardPage() {
                 </div>
               </div>
 
-              {pdfGate && (
-                <div
-                  className={`rounded-xl border px-4 py-3 text-[11px] ${
-                    pdfGate.kind === "signin"
-                      ? "border-amber-900/40 bg-amber-950/25 text-amber-200"
-                      : "border-emerald-900/40 bg-emerald-950/20 text-emerald-200"
-                  }`}
-                >
-                  <div className="font-semibold mb-1">
-                    {pdfGate.kind === "signin" ? "Sign in required" : "Upgrade required"}
-                  </div>
-                  <div className="text-slate-200/90">
-                    {pdfGate.message}{" "}
-                    {pdfGate.kind === "signin" ? (
-                      <Link className="underline text-slate-50" href={loginHref}>
-                        Sign in
-                      </Link>
-                    ) : (
-                      <Link className="underline text-slate-50" href={pricingHref}>
-                        View pricing
-                      </Link>
-                    )}
+              {/* ✅ Unified gating banner */}
+              {showGateCard ? (
+                <div className="rounded-xl border border-slate-800 bg-slate-900/40 px-4 py-3 text-[12px] text-slate-200">
+                  <div className="font-medium text-slate-50">Downloads are locked</div>
+
+                  <div className="mt-1 space-y-2 text-slate-300">
+                    {downloadGate.signinRequired ? (
+                      <div>
+                        <div>• Sign in to download.</div>
+                        <div className="text-[11px] text-slate-400">
+                          You can still preview and save — downloads require being signed in.
+                        </div>
+
+                        <div className="mt-2">
+                          <Link
+                            href={loginHref}
+                            className="inline-flex rounded-full bg-emerald-500 px-3 py-1.5 text-[12px] font-semibold text-slate-950 hover:bg-emerald-400"
+                          >
+                            Sign in
+                          </Link>
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {downloadGate.upgradeRequired ? (
+                      <div>
+                        <div>• Upgrade to Pro to download PDFs.</div>
+                        <div className="text-[11px] text-slate-400">
+                          Previews still work — downloads are a Pro feature.
+                        </div>
+
+                        <div className="mt-2">
+                          <Link
+                            href={pricingHref}
+                            className="inline-flex rounded-full border border-slate-700 bg-slate-950/40 px-3 py-1.5 text-[12px] font-medium text-slate-100 hover:bg-slate-900/60"
+                          >
+                            Upgrade to Pro
+                          </Link>
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {downloadGate.message ? (
+                      <div className="text-[11px] text-slate-400">{downloadGate.message}</div>
+                    ) : null}
                   </div>
                 </div>
-              )}
+              ) : null}
 
               <div className="grid md:grid-cols-[3fr,2fr] gap-4">
                 {/* LEFT */}
@@ -1112,12 +1099,10 @@ export default function WizardPage() {
                       value={result.fullText || ""}
                     />
                     <p className="mt-1 text-[10px] text-slate-400">
-                      Tip: paste this into your letterhead or policy template, then adjust tone and get sign-off from
-                      your legal/compliance advisor.
+                      Tip: paste this into your letterhead or policy template, then adjust tone and get sign-off from your legal/compliance advisor.
                     </p>
                   </div>
 
-                  {/* PDF Preview (no browser toolbar) */}
                   <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3">
                     <div className="flex items-center justify-between gap-3 mb-2">
                       <div>
@@ -1160,10 +1145,18 @@ export default function WizardPage() {
                     <div className="flex items-center justify-between mb-1">
                       <span className="font-medium text-slate-100">Training &amp; quiz</span>
                       <span className="rounded-full bg-amber-950/30 text-amber-200 border border-amber-900/30 px-2 py-0.5 text-[10px]">
-                        Coming soon
+                        Available
                       </span>
                     </div>
-                    <p className="text-slate-300">Simple training questions staff can answer to confirm they understand the policy.</p>
+                    <p className="text-slate-300 mb-2">
+                      Generate a staff quiz from your policy and export a styled PDF.
+                    </p>
+                    <Link
+                      href="/quiz"
+                      className="inline-flex items-center justify-center rounded-full border border-slate-700 bg-slate-950/40 px-3 py-1.5 text-[12px] font-medium text-slate-100 hover:bg-slate-900/60"
+                    >
+                      Open quiz generator →
+                    </Link>
                   </div>
 
                   <div className="rounded-xl border border-slate-800 bg-slate-950/40 px-3 py-2">
@@ -1188,8 +1181,7 @@ export default function WizardPage() {
           )}
 
           <p className="text-[11px] text-slate-500">
-            This wizard helps you generate general templates only and is not legal advice. Always review your final
-            policy with a qualified lawyer in your jurisdiction.
+            This wizard helps you generate general templates only and is not legal advice. Always review your final policy with a qualified lawyer in your jurisdiction.
           </p>
         </div>
       </div>
