@@ -7,6 +7,9 @@ export default async function Header() {
   const session = await auth();
   const isAuthed = !!session?.user;
 
+  // If logged in, take them to the real app generator
+  const generatorHref = isAuthed ? "/wizard" : "/";
+
   return (
     <header className="border-b border-slate-800 bg-slate-950/95 backdrop-blur-md">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-6">
@@ -25,14 +28,20 @@ export default async function Header() {
 
         {/* Nav */}
         <nav className="flex items-center gap-6 text-sm text-slate-200">
-          <Link href="/" className="hover:text-emerald-300 transition">
+          <Link href={generatorHref} className="hover:text-emerald-300 transition">
             Generator
           </Link>
 
           {isAuthed ? (
-            <Link href="/policies" className="hover:text-emerald-300 transition">
-              Policies
-            </Link>
+            <>
+              <Link href="/policies" className="hover:text-emerald-300 transition">
+                Policies
+              </Link>
+
+              <Link href="/quiz" className="hover:text-emerald-300 transition">
+                Quiz
+              </Link>
+            </>
           ) : null}
 
           <Link href="/staff-guide" className="hover:text-emerald-300 transition">
