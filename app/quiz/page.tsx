@@ -5,6 +5,7 @@ import Link from "next/link";
 import Image from "next/image";
 import EmailButton from "../components/EmailButton";
 import PdfPreviewClient from "../components/PdfPreviewClient";
+import DownloadGateCard from "../components/DownloadGateCard";
 
 const LAST_POLICY_KEY = "policysprint:lastPolicy";
 const LAST_BUSINESS_KEY = "policysprint:lastBusinessName";
@@ -37,13 +38,9 @@ export default function QuizPage() {
   const [pdfError, setPdfError] = useState<string | null>(null);
   const [downloadingPdf, setDownloadingPdf] = useState<boolean>(false);
 
-  // ✅ download-only gating banners (may show together)
+  // download-only gating flags (may show together)
   const [upgradeRequired, setUpgradeRequired] = useState<boolean>(false);
   const [emailNotVerified, setEmailNotVerified] = useState<boolean>(false);
-
-  // resend UX
-  const [resendLoading, setResendLoading] = useState<boolean>(false);
-  const [resendSent, setResendSent] = useState<boolean>(false);
 
   const canBuildPdf = useMemo(() => quiz.trim().length > 0, [quiz]);
 
@@ -51,7 +48,6 @@ export default function QuizPage() {
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    // policy
     if (policyText.trim().length === 0) {
       try {
         const stored = window.localStorage.getItem(LAST_POLICY_KEY);
@@ -64,7 +60,6 @@ export default function QuizPage() {
       }
     }
 
-    // business name (best effort)
     if (businessName.trim().length === 0) {
       try {
         const bn = window.localStorage.getItem(LAST_BUSINESS_KEY);
@@ -82,7 +77,6 @@ export default function QuizPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Core generate function (used by auto + manual)
   async function runGenerate(policy: string, count: number, isAuto = false) {
     if (!policy.trim()) {
       setErrorMessage("Please paste or provide your AI Use Policy first.");
@@ -98,8 +92,6 @@ export default function QuizPage() {
     setPdfError(null);
     setUpgradeRequired(false);
     setEmailNotVerified(false);
-    setResendSent(false);
-    setResendLoading(false);
     if (pdfUrl) URL.revokeObjectURL(pdfUrl);
     setPdfUrl(null);
 
@@ -164,20 +156,6 @@ export default function QuizPage() {
     }
   }
 
-  async function resendVerification() {
-    if (resendLoading) return;
-    setResendSent(false);
-    setResendLoading(true);
-    try {
-      const res = await fetch("/api/email/verify/resend", { method: "POST" });
-      if (res.ok) setResendSent(true);
-    } catch {
-      // silent
-    } finally {
-      setResendLoading(false);
-    }
-  }
-
   async function buildQuizPdf(mode: "preview" | "download") {
     if (!quiz.trim()) return;
 
@@ -185,12 +163,10 @@ export default function QuizPage() {
     setDownloadingPdf(mode === "download");
     setPdfError(null);
 
-    // Only clear banners when trying again
     if (mode === "download") {
+      // Only clear banners when trying again
       setUpgradeRequired(false);
       setEmailNotVerified(false);
-      setResendSent(false);
-      setResendLoading(false);
     }
 
     // Persist business name
@@ -310,7 +286,6 @@ export default function QuizPage() {
         {/* Top bar (Wizard-style) */}
         <div className="mb-4 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            {/* ✅ PolicySprint logo */}
             <div className="relative h-6 w-40">
               <Image
                 src="/branding/logo/policysprint-mono-white.png"
@@ -341,7 +316,8 @@ export default function QuizPage() {
             <div>
               <h1 className="text-xl md:text-2xl font-semibold text-slate-50 mb-1">Staff training quiz</h1>
               <p className="text-xs md:text-sm text-slate-300 max-w-2xl">
-                Generate multiple-choice questions from your AI Use Policy, then export a polished PDF for onboarding, annual refreshers, or staff sign-off packs.
+                Generate multiple-choice questions from your AI Use Policy, then export a polished PDF for onboarding,
+                annual refreshers, or staff sign-off packs.
               </p>
 
               {prefilledFromStorage ? (
@@ -498,57 +474,15 @@ export default function QuizPage() {
                   </button>
                 </div>
 
-                {/* ✅ Combined gate card (download only) */}
+                {/* ✅ Unified gate card (download only) */}
                 {showGateCard ? (
-                  <div className="rounded-xl border border-slate-800 bg-slate-900/40 px-3 py-2 text-[12px] text-slate-200">
-                    <div className="font-medium text-slate-50">Downloads are locked</div>
-
-                    <div className="mt-1 space-y-2 text-slate-300">
-                      {emailNotVerified ? (
-                        <div>
-                          <div>• Verify your email to download.</div>
-                          <div className="text-[11px] text-slate-400">
-                            Check your inbox (and spam). You can resend a new link anytime.
-                          </div>
-
-                          <div className="mt-2">
-                            {resendSent ? (
-                              <span className="inline-flex items-center rounded-full border border-emerald-400/30 bg-emerald-950/20 px-3 py-1.5 text-[12px] font-medium text-emerald-200">
-                                Verification email resent ✓
-                              </span>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={resendVerification}
-                                disabled={resendLoading}
-                                className="inline-flex rounded-full bg-emerald-500 px-3 py-1.5 text-[12px] font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
-                              >
-                                {resendLoading ? "Sending…" : "Resend verification"}
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      ) : null}
-
-                      {upgradeRequired ? (
-                        <div>
-                          <div>• Upgrade to Pro to download PDFs.</div>
-                          <div className="text-[11px] text-slate-400">
-                            Previews still work — downloads are a Pro feature.
-                          </div>
-
-                          <div className="mt-2">
-                            <Link
-                              href="/pricing"
-                              className="inline-flex rounded-full border border-slate-700 bg-slate-950/40 px-3 py-1.5 text-[12px] font-medium text-slate-100 hover:bg-slate-900/60"
-                            >
-                              Upgrade to Pro
-                            </Link>
-                          </div>
-                        </div>
-                      ) : null}
-                    </div>
-                  </div>
+                  <DownloadGateCard
+                    showVerifyEmail={emailNotVerified}
+                    showUpgrade={upgradeRequired}
+                    title="Downloads are locked"
+                    subtitle="Preview works — downloads require access."
+                    showResendVerification
+                  />
                 ) : null}
 
                 <div className="flex items-center gap-2">
