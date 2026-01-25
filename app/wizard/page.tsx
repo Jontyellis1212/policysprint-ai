@@ -7,6 +7,9 @@ import DownloadGateCard from "../components/DownloadGateCard";
 import GenerateStaffGuideButton from "../components/GenerateStaffGuideButton";
 import { SavePolicyButton } from "../components/SavePolicyButton";
 import PdfPreviewClient from "../components/PdfPreviewClient";
+import MobileStickyActions from "@/app/components/MobileStickyActions";
+import PdfPreviewModal from "../components/PdfPreviewModal";
+
 
 type Step = 1 | 2 | 3;
 type TeamSizeOption = "solo" | "small" | "medium" | "large" | "enterprise";
@@ -424,7 +427,7 @@ export default function WizardPage() {
   const fullPolicyTextForSave = result?.fullText || "";
 
   const callbackUrl = "/wizard";
-  const pricingHref = `/pricing`;
+  const pricingHref = "/pricing";
 
   const handleDownloadPdf = async () => {
     if (!result?.fullText) return;
@@ -478,8 +481,9 @@ export default function WizardPage() {
       const a = document.createElement("a");
       a.href = url;
       a.download =
-        (form.businessName ? `ai-use-policy-${form.businessName.replace(/\s+/g, "-").toLowerCase()}` : "ai-use-policy") +
-        ".pdf";
+        (form.businessName
+          ? `ai-use-policy-${form.businessName.replace(/\s+/g, "-").toLowerCase()}`
+          : "ai-use-policy") + ".pdf";
 
       document.body.appendChild(a);
       a.click();
@@ -623,8 +627,7 @@ export default function WizardPage() {
     "w-full rounded-xl border border-slate-700 bg-slate-950/60 px-4 py-2.5 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:ring-2 focus:ring-emerald-400/40";
   const pillBase = "rounded-full border px-3 py-1 text-[11px] transition";
   const pillOn = "border-slate-50 bg-slate-50 text-slate-950";
-  const pillOff =
-    "border-slate-700 bg-slate-950/40 text-slate-200 hover:bg-slate-900/50";
+  const pillOff = "border-slate-700 bg-slate-950/40 text-slate-200 hover:bg-slate-900/50";
   const btnPrimary =
     "inline-flex items-center justify-center rounded-full bg-slate-50 px-5 py-2 text-sm font-medium text-slate-950 hover:bg-slate-200 disabled:opacity-60";
   const btnSecondary =
@@ -654,7 +657,8 @@ export default function WizardPage() {
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-50">
-      <div className="mx-auto max-w-5xl px-4 py-6 md:py-10">
+      {/* ✅ pb-28 prevents content being hidden behind the sticky bar on mobile */}
+      <div className="w-full px-4 py-6 pb-28 md:mx-auto md:max-w-5xl md:py-10 md:pb-0">
         {/* Top bar */}
         <div className="mb-4 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
@@ -746,9 +750,10 @@ export default function WizardPage() {
                             key={key}
                             type="button"
                             onClick={() => setForm((prev) => ({ ...prev, teamSize: key }))}
-                            className={`rounded-full border px-3 py-1 text-[11px] transition ${
-                              selected ? "border-slate-50 bg-slate-50 text-slate-950" : pillOff
-                            } text-left`}
+                            className={[
+                              "rounded-full border px-3 py-1 text-[11px] transition text-left",
+                              selected ? pillOn : pillOff,
+                            ].join(" ")}
                           >
                             {TEAM_SIZE_LABELS[key]}
                           </button>
@@ -760,7 +765,9 @@ export default function WizardPage() {
 
                 <div>
                   <label className={label}>How do you use AI today?</label>
-                  <p className={`${hint} mb-2`}>Choose the options that fit, optionally pick common tools, then add any extra detail.</p>
+                  <p className={`${hint} mb-2`}>
+                    Choose the options that fit, optionally pick common tools, then add any extra detail.
+                  </p>
 
                   <div className="flex flex-wrap gap-2 mb-3">
                     {AI_USAGE_TAGS.map((tag) => {
@@ -771,7 +778,9 @@ export default function WizardPage() {
                           key={tag}
                           type="button"
                           onClick={() => toggleAiTag(tag)}
-                          className={[pillBase, selected ? pillOn : pillOff, isNone ? "border-amber-900/40" : ""].join(" ")}
+                          className={[pillBase, selected ? pillOn : pillOff, isNone ? "border-amber-900/40" : ""].join(
+                            " "
+                          )}
                           title={isNone ? "Selecting this clears other usage types" : undefined}
                         >
                           {tag}
@@ -786,7 +795,8 @@ export default function WizardPage() {
                         <div>
                           <div className="text-[11px] font-medium text-slate-200">Common AI tools used (optional)</div>
                           <div className="text-[10px] text-slate-400">
-                            This helps the policy call out specific tools. It will be included in your “How we use AI” notes.
+                            This helps the policy call out specific tools. It will be included in your “How we use AI”
+                            notes.
                           </div>
                         </div>
 
@@ -855,14 +865,20 @@ export default function WizardPage() {
                   ) : null}
                 </div>
 
-                <div className="mt-4 flex items-center justify-between gap-3">
-                  <Link href="/" className="text-[11px] text-slate-400 hover:text-slate-200">
-                    ← Back to landing page
-                  </Link>
-                  <button type="submit" className={btnPrimary}>
-                    Save &amp; continue to risk &amp; rules →
-                  </button>
-                </div>
+                {/* ✅ Sticky actions on mobile, normal flow on desktop */}
+                <MobileStickyActions>
+                  <div className="flex items-center gap-2">
+                    <Link href="/" className="text-[11px] text-slate-400 hover:text-slate-200">
+                      ← Back to landing page
+                    </Link>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button type="submit" className={btnPrimary}>
+                      Save &amp; continue to risk &amp; rules →
+                    </button>
+                  </div>
+                </MobileStickyActions>
               </form>
             </section>
           )}
@@ -881,7 +897,7 @@ export default function WizardPage() {
                 <div className="grid md:grid-cols-2 gap-4">
                   <div>
                     <label className={label}>How sensitive is your data overall?</label>
-                    <div className="grid grid-cols-3 gap-2 text-[11px]">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[11px]">
                       {(["low", "medium", "high"] as RiskLevel[]).map((level) => {
                         const selected = form.riskLevel === level;
                         const labelTxt =
@@ -906,7 +922,7 @@ export default function WizardPage() {
 
                   <div>
                     <label className={label}>Overall posture to AI</label>
-                    <div className="grid grid-cols-3 gap-2 text-[11px]">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[11px]">
                       {(["strict", "balanced", "open"] as RiskPosture[]).map((p) => {
                         const selected = form.riskPosture === p;
                         const labelTxt =
@@ -991,12 +1007,18 @@ export default function WizardPage() {
                   </div>
                 </div>
 
-                <div className="mt-4 flex items-center justify-between gap-3">
-                  <button type="button" onClick={handleBackFromStep2} className={btnSecondary} disabled={loading}>
-                    ← Back to business details
-                  </button>
-                  <GenerateButton loading={loading} seconds={generateSeconds} />
-                </div>
+                {/* ✅ Sticky actions on mobile, normal flow on desktop */}
+                <MobileStickyActions>
+                  <div className="flex items-center gap-2">
+                    <button type="button" onClick={handleBackFromStep2} className={btnSecondary} disabled={loading}>
+                      ← Back to business details
+                    </button>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <GenerateButton loading={loading} seconds={generateSeconds} />
+                  </div>
+                </MobileStickyActions>
 
                 {errorMessage && (
                   <div className="mt-3 rounded-xl border border-rose-900/40 bg-rose-950/30 px-4 py-3 text-[11px] text-rose-200">
@@ -1007,138 +1029,188 @@ export default function WizardPage() {
             </section>
           )}
 
-          {/* Step 3 */}
-          {step === 3 && result && result.success && (
-            <section className={`${card} space-y-5`}>
-              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
-                <div>
-                  <h1 className="text-xl md:text-2xl font-semibold text-slate-50 mb-1">Your AI policy draft is ready</h1>
-                  <p className="text-xs md:text-sm text-slate-300 max-w-2xl">
-                    Copy this into your own document, tweak the language, and have your lawyer review it before rolling it out to staff.
-                  </p>
-                </div>
+{/* Step 3 */}
+{step === 3 && result && result.success && (
+  <section className={`${card} space-y-5`}>
+    <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+      <div>
+        <h1 className="text-xl md:text-2xl font-semibold text-slate-50 mb-1">
+          Your AI policy draft is ready
+        </h1>
+        <p className="text-xs md:text-sm text-slate-300 max-w-2xl">
+          Copy this into your own document, tweak the language, and have your lawyer review it before rolling it out to staff.
+        </p>
+      </div>
 
-                <div className="flex flex-wrap gap-2 items-center">
-                  <button type="button" onClick={handleDownloadPdf} className={btnSecondary} disabled={downloadingPdf}>
-                    {downloadingPdf ? "Preparing PDF…" : "Download PDF"}
-                  </button>
-                  <button type="button" onClick={handleCopy} className={btnSecondary}>
-                    {copied ? "Copied!" : "Copy full draft"}
-                  </button>
-                  <SavePolicyButton
-                    policyTitle={policyTitleForSave}
-                    businessName={form.businessName}
-                    industry={form.industry}
-                    country={form.country}
-                    fullPolicyText={fullPolicyTextForSave}
-                  />
-                </div>
+      {/* Actions: mobile = stacked flow, desktop = inline */}
+      <div className="w-full md:w-auto">
+        <div className="flex flex-col gap-2 md:flex-row md:flex-wrap md:gap-2 md:items-center">
+          {/* Mobile primary: Preview PDF */}
+          <div className="w-full md:hidden">
+            <PdfPreviewModal
+              blobUrl={previewUrl}
+              loading={previewLoading}
+              error={previewError}
+              onRefresh={buildPreview}
+            />
+            <p className="mt-1 text-center text-[10px] text-slate-400">
+              Opens a full-screen preview. Free accounts see a watermark.
+            </p>
+          </div>
+
+          {/* Download */}
+          <button
+            type="button"
+            onClick={handleDownloadPdf}
+            className={[
+              btnSecondary,
+              "w-full md:w-auto",
+              "py-3 md:py-2",
+              "text-[12px] md:text-[11px]",
+            ].join(" ")}
+            disabled={downloadingPdf}
+          >
+            {downloadingPdf ? "Preparing PDF…" : "Download PDF"}
+          </button>
+
+          {/* Save */}
+          <div className="w-full md:w-auto">
+            <SavePolicyButton
+              policyTitle={policyTitleForSave}
+              businessName={form.businessName}
+              industry={form.industry}
+              country={form.country}
+              fullPolicyText={fullPolicyTextForSave}
+            />
+          </div>
+
+          {/* Copy */}
+          <button
+            type="button"
+            onClick={handleCopy}
+            className={[
+              btnSecondary,
+              "w-full md:w-auto",
+              "py-3 md:py-2",
+              "text-[12px] md:text-[11px]",
+            ].join(" ")}
+          >
+            {copied ? "Copied!" : "Copy full draft"}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    {/* ✅ Unified gating banner */}
+    {showGateCard ? (
+      <DownloadGateCard
+        showSignIn={downloadGate.signinRequired}
+        showUpgrade={downloadGate.upgradeRequired}
+        callbackUrl={callbackUrl}
+        pricingHref={pricingHref}
+        title="Unlock downloads"
+        subtitle={
+          downloadGate.message ||
+          "Preview is free. Sign in or upgrade to export PDFs, staff guides, and quizzes."
+        }
+      />
+    ) : null}
+
+    <div className="grid md:grid-cols-[3fr,2fr] gap-4">
+      {/* LEFT */}
+      <div className="space-y-3">
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-[11px] font-medium text-slate-200">AI Use Policy draft</span>
+          </div>
+          <textarea
+            readOnly
+            className="w-full h-72 rounded-xl border border-slate-700 bg-slate-950/60 px-4 py-3 text-[11px] leading-relaxed text-slate-100"
+            value={result.fullText || ""}
+          />
+          <p className="mt-1 text-[10px] text-slate-400">
+            Tip: paste this into your letterhead or policy template, then adjust tone and get sign-off from your legal/compliance advisor.
+          </p>
+        </div>
+
+        {/* PDF preview — desktop only */}
+        <div className="hidden md:block rounded-xl border border-slate-800 bg-slate-950/40 p-3">
+          <div className="flex items-center justify-between gap-3 mb-2">
+            <div>
+              <div className="text-[11px] font-semibold text-slate-100">PDF preview</div>
+              <div className="text-[10px] text-slate-400">
+                This is what your exported PDF will look like. Free accounts see a preview watermark.
               </div>
+            </div>
 
-              {/* ✅ Unified gating banner */}
-              {showGateCard ? (
-                <DownloadGateCard
-                  showSignIn={downloadGate.signinRequired}
-                  showUpgrade={downloadGate.upgradeRequired}
-                  callbackUrl={callbackUrl}
-                  pricingHref={pricingHref}
-                  title="Unlock downloads"
-                  subtitle={
-                    downloadGate.message ||
-                    "Preview is free. Sign in or upgrade to export PDFs, staff guides, and quizzes."
-                  }
-                />
-              ) : null}
+            <button
+              type="button"
+              onClick={buildPreview}
+              disabled={previewLoading}
+              className="inline-flex items-center justify-center rounded-full border border-slate-700 bg-slate-900/40 px-3 py-1.5 text-[11px] text-slate-100 hover:bg-slate-900/70 disabled:opacity-60"
+            >
+              {previewLoading ? "Building…" : "Refresh preview"}
+            </button>
+          </div>
 
-              <div className="grid md:grid-cols-[3fr,2fr] gap-4">
-                {/* LEFT */}
-                <div className="space-y-3">
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-[11px] font-medium text-slate-200">AI Use Policy draft</span>
-                    </div>
-                    <textarea
-                      readOnly
-                      className="w-full h-72 rounded-xl border border-slate-700 bg-slate-950/60 px-4 py-3 text-[11px] leading-relaxed text-slate-100"
-                      value={result.fullText || ""}
-                    />
-                    <p className="mt-1 text-[10px] text-slate-400">
-                      Tip: paste this into your letterhead or policy template, then adjust tone and get sign-off from your legal/compliance advisor.
-                    </p>
-                  </div>
+          <PdfPreviewClient blobUrl={previewUrl} loading={previewLoading} error={previewError} height={520} />
+        </div>
+      </div>
 
-                  <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3">
-                    <div className="flex items-center justify-between gap-3 mb-2">
-                      <div>
-                        <div className="text-[11px] font-semibold text-slate-100">PDF preview</div>
-                        <div className="text-[10px] text-slate-400">
-                          This is what your exported PDF will look like. Free accounts see a preview watermark.
-                        </div>
-                      </div>
+      {/* RIGHT */}
+      <div className="space-y-3 text-[11px]">
+        <div className="rounded-xl border border-slate-800 bg-slate-950/40 px-3 py-2">
+          <div className="flex items-center justify-between mb-1">
+            <span className="font-medium text-slate-100">Staff guide</span>
+            <span className="rounded-full bg-emerald-950/40 text-emerald-200 border border-emerald-900/40 px-2 py-0.5 text-[10px]">
+              New
+            </span>
+          </div>
+          <p className="text-slate-300 mb-2">
+            Turn this policy into a short, plain-English summary you can send to your team.
+          </p>
+          <GenerateStaffGuideButton policyText={result.fullText || ""} />
+        </div>
 
-                      <button
-                        type="button"
-                        onClick={buildPreview}
-                        disabled={previewLoading}
-                        className="inline-flex items-center justify-center rounded-full border border-slate-700 bg-slate-900/40 px-3 py-1.5 text-[11px] text-slate-100 hover:bg-slate-900/70 disabled:opacity-60"
-                      >
-                        {previewLoading ? "Building…" : "Refresh preview"}
-                      </button>
-                    </div>
+        <div className="rounded-xl border border-slate-800 bg-slate-950/40 px-3 py-2">
+          <div className="flex items-center justify-between mb-1">
+            <span className="font-medium text-slate-100">Training &amp; quiz</span>
+            <span className="rounded-full bg-amber-950/30 text-amber-200 border border-amber-900/30 px-2 py-0.5 text-[10px]">
+              Available
+            </span>
+          </div>
+          <p className="text-slate-300 mb-2">
+            Generate a staff quiz from your policy and export a styled PDF.
+          </p>
+          <Link
+            href="/quiz"
+            className="inline-flex items-center justify-center rounded-full border border-slate-700 bg-slate-950/40 px-3 py-2 text-[12px] font-medium text-slate-100 hover:bg-slate-900/60 w-full md:w-auto"
+          >
+            Open quiz generator →
+          </Link>
+        </div>
 
-                    <PdfPreviewClient blobUrl={previewUrl} loading={previewLoading} error={previewError} height={520} />
-                  </div>
-                </div>
+        <div className="rounded-xl border border-slate-800 bg-slate-950/40 px-3 py-2">
+          <span className="font-medium text-slate-100">What&apos;s next?</span>
+          <ul className="list-disc pl-4 mt-1 space-y-1 text-slate-300">
+            <li>Copy this draft into a document</li>
+            <li>Review and edit with a lawyer</li>
+            <li>Roll it out to your team</li>
+            <li>Use the staff guide so they actually understand it</li>
+          </ul>
+        </div>
+      </div>
+    </div>
 
-                {/* RIGHT */}
-                <div className="space-y-3 text-[11px]">
-                  <div className="rounded-xl border border-slate-800 bg-slate-950/40 px-3 py-2">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="font-medium text-slate-100">Staff guide</span>
-                      <span className="rounded-full bg-emerald-950/40 text-emerald-200 border border-emerald-900/40 px-2 py-0.5 text-[10px]">
-                        New
-                      </span>
-                    </div>
-                    <p className="text-slate-300 mb-2">Turn this policy into a short, plain-English summary you can send to your team.</p>
-                    <GenerateStaffGuideButton policyText={result.fullText || ""} />
-                  </div>
+    <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 text-[11px] text-slate-400">
+      <button type="button" className="underline text-left" onClick={() => setStep(2)}>
+        ← Back to adjust risk &amp; rules
+      </button>
+      <span>General templates only — always review with a qualified lawyer.</span>
+    </div>
+  </section>
+)}
 
-                  <div className="rounded-xl border border-slate-800 bg-slate-950/40 px-3 py-2">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="font-medium text-slate-100">Training &amp; quiz</span>
-                      <span className="rounded-full bg-amber-950/30 text-amber-200 border border-amber-900/30 px-2 py-0.5 text-[10px]">
-                        Available
-                      </span>
-                    </div>
-                    <p className="text-slate-300 mb-2">Generate a staff quiz from your policy and export a styled PDF.</p>
-                    <Link
-                      href="/quiz"
-                      className="inline-flex items-center justify-center rounded-full border border-slate-700 bg-slate-950/40 px-3 py-1.5 text-[12px] font-medium text-slate-100 hover:bg-slate-900/60"
-                    >
-                      Open quiz generator →
-                    </Link>
-                  </div>
-
-                  <div className="rounded-xl border border-slate-800 bg-slate-950/40 px-3 py-2">
-                    <span className="font-medium text-slate-100">What&apos;s next?</span>
-                    <ul className="list-disc pl-4 mt-1 space-y-1 text-slate-300">
-                      <li>Copy this draft into a document</li>
-                      <li>Review and edit with a lawyer</li>
-                      <li>Roll it out to your team</li>
-                      <li>Use the staff guide so they actually understand it</li>
-                    </ul>
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between text-[11px] text-slate-400">
-                <button type="button" className="underline" onClick={() => setStep(2)}>
-                  ← Back to adjust risk &amp; rules
-                </button>
-                <span>General templates only — always review with a qualified lawyer.</span>
-              </div>
-            </section>
-          )}
 
           <p className="text-[11px] text-slate-500">
             This wizard helps you generate general templates only and is not legal advice. Always review your final policy with a qualified lawyer in your jurisdiction.

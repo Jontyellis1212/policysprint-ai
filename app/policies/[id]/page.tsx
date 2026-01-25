@@ -1,3 +1,5 @@
+// app/policies/[id]/page.tsx
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
@@ -24,6 +26,37 @@ type PolicyVersionDTO = {
   createdAt: string;
 };
 
+function ErrorShell({
+  title,
+  message,
+}: {
+  title: string;
+  message: string;
+}) {
+  return (
+    <main className="min-h-screen bg-slate-950 text-slate-50">
+      <div className="mx-auto max-w-4xl px-4 py-10">
+        <p className="uppercase text-xs font-semibold text-slate-400 tracking-[0.14em]">
+          PolicySprint AI
+        </p>
+
+        <h1 className="text-2xl font-semibold text-slate-50 mt-2">{title}</h1>
+
+        <p className="text-sm text-slate-300 mt-2">{message}</p>
+
+        <div className="mt-6">
+          <Link
+            href="/policies"
+            className="inline-flex rounded-full border border-slate-700 px-4 py-2 text-sm text-slate-100 hover:border-slate-500 hover:text-white transition"
+          >
+            ← Back to policies
+          </Link>
+        </div>
+      </div>
+    </main>
+  );
+}
+
 export default async function PolicyDetailPage({
   params,
 }: {
@@ -43,15 +76,10 @@ export default async function PolicyDetailPage({
 
   if (!policyId) {
     return (
-      <div className="min-h-screen bg-slate-50">
-        <main className="mx-auto max-w-4xl px-4 py-10">
-          <p className="uppercase text-xs font-semibold text-slate-500 tracking-[0.14em]">PolicySprint AI</p>
-          <h1 className="text-2xl font-semibold text-slate-900 mt-2">Invalid link</h1>
-          <p className="text-sm text-slate-700 mt-2">
-            This policy link is missing an ID. Go back to your policies and open one from the list.
-          </p>
-        </main>
-      </div>
+      <ErrorShell
+        title="Invalid link"
+        message="This policy link is missing an ID. Go back to your policies and open one from the list."
+      />
     );
   }
 
@@ -63,41 +91,19 @@ export default async function PolicyDetailPage({
 
   if (!exists) {
     return (
-      <div className="min-h-screen bg-slate-50">
-        <main className="mx-auto max-w-4xl px-4 py-10">
-          <p className="uppercase text-xs font-semibold text-slate-500 tracking-[0.14em]">PolicySprint AI</p>
-          <h1 className="text-2xl font-semibold text-slate-900 mt-2">Policy not found</h1>
-          <p className="text-sm text-slate-700 mt-2">This policy doesn’t exist, or it may have been deleted.</p>
-          <div className="mt-6">
-            <a
-              href="/policies"
-              className="inline-flex px-4 py-2 rounded border border-slate-300 text-sm text-slate-700 hover:bg-slate-50"
-            >
-              ← Back to policies
-            </a>
-          </div>
-        </main>
-      </div>
+      <ErrorShell
+        title="Policy not found"
+        message="This policy doesn’t exist, or it may have been deleted."
+      />
     );
   }
 
   if (exists.userId !== userId) {
     return (
-      <div className="min-h-screen bg-slate-50">
-        <main className="mx-auto max-w-4xl px-4 py-10">
-          <p className="uppercase text-xs font-semibold text-slate-500 tracking-[0.14em]">PolicySprint AI</p>
-          <h1 className="text-2xl font-semibold text-slate-900 mt-2">No access</h1>
-          <p className="text-sm text-slate-700 mt-2">You’re signed in, but you don’t have access to this policy.</p>
-          <div className="mt-6">
-            <a
-              href="/policies"
-              className="inline-flex px-4 py-2 rounded border border-slate-300 text-sm text-slate-700 hover:bg-slate-50"
-            >
-              ← Back to policies
-            </a>
-          </div>
-        </main>
-      </div>
+      <ErrorShell
+        title="No access"
+        message="You’re signed in, but you don’t have access to this policy."
+      />
     );
   }
 
@@ -119,21 +125,10 @@ export default async function PolicyDetailPage({
 
   if (!policy) {
     return (
-      <div className="min-h-screen bg-slate-50">
-        <main className="mx-auto max-w-4xl px-4 py-10">
-          <p className="uppercase text-xs font-semibold text-slate-500 tracking-[0.14em]">PolicySprint AI</p>
-          <h1 className="text-2xl font-semibold text-slate-900 mt-2">Something went wrong</h1>
-          <p className="text-sm text-slate-700 mt-2">We couldn’t load this policy.</p>
-          <div className="mt-6">
-            <a
-              href="/policies"
-              className="inline-flex px-4 py-2 rounded border border-slate-300 text-sm text-slate-700 hover:bg-slate-50"
-            >
-              ← Back to policies
-            </a>
-          </div>
-        </main>
-      </div>
+      <ErrorShell
+        title="Something went wrong"
+        message="We couldn’t load this policy."
+      />
     );
   }
 

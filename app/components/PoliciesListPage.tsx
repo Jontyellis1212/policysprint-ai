@@ -68,37 +68,40 @@ export default async function PoliciesListPage({
 
   const showEmpty = policies.length === 0;
 
+  // Buttons
   const pill =
     "inline-flex items-center justify-center rounded-full border px-4 py-2 text-sm font-medium transition";
   const pillNeutral = `${pill} border-slate-700 text-slate-100 hover:border-slate-500 hover:text-white`;
   const pillPrimary = `${pill} border-emerald-400/80 bg-emerald-950/20 text-emerald-200 hover:border-emerald-300 hover:bg-emerald-950/30`;
-  const card = "rounded-2xl border border-slate-800 bg-slate-900/35 backdrop-blur p-6 shadow-sm";
+
+  // Cards
+  const card = "rounded-2xl border border-slate-800 bg-slate-900/35 backdrop-blur p-5 sm:p-6 shadow-sm";
   const listItem =
     "block rounded-xl border border-slate-800 bg-slate-950/30 backdrop-blur p-4 hover:border-slate-700 hover:bg-slate-950/45 transition";
 
   return (
-    <div>
-      <header className="mb-6 flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-semibold text-slate-50">Policies</h1>
+    <div className="pt-1">
+      <header className="mb-5 sm:mb-6 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+        <div className="min-w-0">
+          <h1 className="text-2xl sm:text-3xl font-semibold text-slate-50">Policies</h1>
           <p className="mt-1 text-sm text-slate-300">
             Click a policy to view, edit, duplicate, delete, or export.
           </p>
 
           {showSignedInAs && userEmail ? (
-            <p className="mt-2 text-xs text-slate-400">
+            <p className="mt-2 text-xs text-slate-400 break-all">
               Signed in as <span className="font-semibold text-slate-200">{userEmail}</span>
             </p>
           ) : null}
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <Link href={basePath} prefetch={false} className={pillNeutral}>
-            Refresh
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto">
+          <Link href="/wizard" className={pillPrimary + " w-full sm:w-auto"}>
+            + New policy
           </Link>
 
-          <Link href="/wizard" className={pillPrimary}>
-            + New policy
+          <Link href={basePath} prefetch={false} className={pillNeutral + " w-full sm:w-auto"}>
+            Refresh
           </Link>
         </div>
       </header>
@@ -107,22 +110,26 @@ export default async function PoliciesListPage({
         <div className={card}>
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Welcome</p>
 
-          <h2 className="mt-2 text-2xl font-semibold text-slate-50">Create your first policy</h2>
+          <h2 className="mt-2 text-xl sm:text-2xl font-semibold text-slate-50">Create your first policy</h2>
 
           <p className="mt-2 max-w-2xl text-sm text-slate-300">
             Generate a policy in minutes. Edit it, save versions, restore snapshots, and export a professional PDF when
             ready.
           </p>
 
-          <div className="mt-6 flex flex-wrap gap-3">
+          <div className="mt-6 flex flex-col sm:flex-row gap-3">
             <Link
               href="/wizard"
-              className="inline-flex items-center justify-center rounded-full bg-emerald-400 px-5 py-2.5 text-sm font-semibold text-slate-950 hover:bg-emerald-300 transition"
+              className="inline-flex items-center justify-center rounded-full bg-emerald-400 px-5 py-2.5 text-sm font-semibold text-slate-950 hover:bg-emerald-300 transition w-full sm:w-auto"
             >
               Generate a policy
             </Link>
 
-            <Link href={basePath} prefetch={false} className={pillNeutral + " px-5 py-2.5"}>
+            <Link
+              href={basePath}
+              prefetch={false}
+              className={pillNeutral + " px-5 py-2.5 w-full sm:w-auto"}
+            >
               Refresh
             </Link>
           </div>
@@ -143,15 +150,17 @@ export default async function PoliciesListPage({
           {policies.map((p) => (
             <li key={p.id}>
               <Link href={`${basePath}/${p.id}`} className={listItem}>
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <h3 className="font-medium text-slate-50">{p.title || "AI Use Policy"}</h3>
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                  <h3 className="font-medium text-slate-50 break-words">
+                    {p.title || "AI Use Policy"}
+                  </h3>
 
-                  <span className="text-xs text-slate-400">
+                  <span className="text-xs text-slate-400 shrink-0">
                     {p.createdAt ? formatDate(p.createdAt) : ""}
                   </span>
                 </div>
 
-                <p className="mt-1 text-xs text-slate-300">{formatMeta(p) || "—"}</p>
+                <p className="mt-1 text-xs text-slate-300 break-words">{formatMeta(p) || "—"}</p>
               </Link>
             </li>
           ))}

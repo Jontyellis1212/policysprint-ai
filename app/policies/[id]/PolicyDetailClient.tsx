@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 type Policy = {
@@ -95,6 +95,10 @@ function buildLineDiff(fromText: string, toText: string): DiffRow[] {
 
 type PdfLockedState = { title: string; message: string } | null;
 
+function clsx(...parts: Array<string | false | null | undefined>) {
+  return parts.filter(Boolean).join(" ");
+}
+
 export default function PolicyDetailClient({
   policy,
   versions,
@@ -126,6 +130,9 @@ export default function PolicyDetailClient({
   const [pdfPreviewOpen, setPdfPreviewOpen] = useState(false);
   const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
 
+  // Mobile actions popover
+  const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
+
   const pushToast = (type: Toast["type"], message: string, ms = 3500) => {
     const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
     setToasts((t) => [{ id, type, message }, ...t].slice(0, 4));
@@ -152,6 +159,28 @@ export default function PolicyDetailClient({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Close “More” when clicking outside or pressing Escape
+  useEffect(() => {
+    if (!mobileMoreOpen) return;
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMobileMoreOpen(false);
+    };
+    const onClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
+      if (target.closest("[data-mobile-more]")) return;
+      setMobileMoreOpen(false);
+    };
+
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("click", onClick);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("click", onClick);
+    };
+  }, [mobileMoreOpen]);
 
   const handleDelete = async () => {
     const confirmed = window.confirm(
@@ -246,7 +275,10 @@ export default function PolicyDetailClient({
           return;
         }
         const txt = await res.text().catch(() => "");
-        pushToast("error", txt?.trim() ? `Failed to generate PDF preview: ${txt.slice(0, 180)}` : "Failed to generate PDF preview.");
+        pushToast(
+          "error",
+          txt?.trim() ? `Failed to generate PDF preview: ${txt.slice(0, 180)}` : "Failed to generate PDF preview."
+        );
         return;
       }
 
@@ -404,22 +436,30 @@ export default function PolicyDetailClient({
   const diffRows: DiffRow[] =
     selectedVersion && previewMode === "diff" && !diffTooBig ? buildLineDiff(currentText, previewText) : [];
 
+  const subtitle = useMemo(() => {
+    const parts: string[] = [];
+    if (policy.businessName) parts.push(policy.businessName);
+    if (policy.industry) parts.push(policy.industry);
+    if (policy.country) parts.push(policy.country);
+    return parts.join(" · ");
+  }, [policy.businessName, policy.country, policy.industry]);
+
+  const primaryDisabled = deleting || duplicating || downloadingPdf || previewingPdf;
+
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-slate-950 text-slate-100">
       {/* Toasts */}
       {toasts.length > 0 ? (
-        <div className="fixed top-4 right-4 z-50 flex flex-col gap-2 w-[320px]">
+        <div className="fixed z-50 top-4 left-1/2 -translate-x-1/2 w-[92vw] max-w-[420px] flex flex-col gap-2">
           {toasts.map((t) => (
             <div
               key={t.id}
-              className={[
-                "rounded-xl border shadow-sm px-4 py-3 text-sm",
-                t.type === "success"
-                  ? "bg-emerald-50 border-emerald-200 text-emerald-800"
-                  : t.type === "error"
-                  ? "bg-red-50 border-red-200 text-red-800"
-                  : "bg-slate-50 border-slate-200 text-slate-800",
-              ].join(" ")}
+              className={clsx(
+                "rounded-2xl border shadow-lg px-4 py-3 text-sm backdrop-blur",
+                t.type === "success" && "bg-emerald-500/15 border-emerald-400/25 text-emerald-50",
+                t.type === "error" && "bg-red-500/15 border-red-400/25 text-red-50",
+                t.type === "info" && "bg-slate-700/30 border-slate-400/20 text-slate-50"
+              )}
             >
               {t.message}
             </div>
@@ -430,35 +470,37 @@ export default function PolicyDetailClient({
       {/* Preview modal */}
       {pdfPreviewOpen ? (
         <div className="fixed inset-0 z-50">
-          <div className="absolute inset-0 bg-black/50" onClick={closePreview} />
-          <div className="absolute inset-0 flex items-center justify-center p-4">
-            <div className="w-full max-w-5xl h-[85vh] rounded-2xl bg-white shadow-xl border border-slate-200 overflow-hidden">
-              <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
+          <div className="absolute inset-0 bg-black/70" onClick={closePreview} />
+          <div className="absolute inset-0 flex items-center justify-center p-3 sm:p-6">
+            <div className="w-full max-w-6xl h-[86vh] rounded-3xl bg-slate-900/80 backdrop-blur border border-slate-700/60 overflow-hidden shadow-2xl">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-4 py-3 border-b border-slate-700/60">
                 <div>
-                  <p className="text-sm font-semibold text-slate-900">PDF preview</p>
-                  <p className="text-xs text-slate-500">This is a watermarked preview. Upgrade to download the final PDF.</p>
+                  <p className="text-sm font-semibold text-slate-50">PDF preview</p>
+                  <p className="text-xs text-slate-300">
+                    This is a watermarked preview. Upgrade to download the final PDF.
+                  </p>
                 </div>
                 <div className="flex gap-2">
                   <a
                     href="/pricing"
-                    className="px-3 py-1.5 rounded-full bg-slate-900 text-xs font-medium text-white hover:bg-slate-800"
+                    className="px-3 py-1.5 rounded-full bg-emerald-500 text-xs font-semibold text-slate-950 hover:bg-emerald-400"
                   >
                     Upgrade to Pro
                   </a>
                   <button
                     onClick={closePreview}
-                    className="px-3 py-1.5 rounded-full border border-slate-300 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                    className="px-3 py-1.5 rounded-full border border-slate-600 text-xs font-medium text-slate-100 hover:bg-slate-800"
                   >
                     Close
                   </button>
                 </div>
               </div>
 
-              <div className="w-full h-full bg-slate-50">
+              <div className="w-full h-full bg-slate-950">
                 {pdfPreviewUrl ? (
                   <iframe title="PDF preview" src={pdfPreviewUrl} className="w-full h-full" />
                 ) : (
-                  <div className="p-6 text-sm text-slate-700">Loading preview…</div>
+                  <div className="p-6 text-sm text-slate-200">Loading preview…</div>
                 )}
               </div>
             </div>
@@ -466,26 +508,26 @@ export default function PolicyDetailClient({
         </div>
       ) : null}
 
-      <main className="mx-auto max-w-4xl px-4 py-10">
+      <main className="mx-auto max-w-5xl px-4 pt-8 pb-24 sm:pb-10">
         {/* Download paywall banner */}
         {pdfLocked ? (
-          <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-900 shadow-sm">
-            <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="mb-5 rounded-3xl border border-amber-400/25 bg-amber-500/10 p-4 sm:p-5 shadow-lg">
+            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
               <div>
-                <p className="text-sm font-semibold">{pdfLocked.title}</p>
-                <p className="mt-1 text-sm text-amber-900/90">{pdfLocked.message}</p>
+                <p className="text-sm font-semibold text-amber-200">{pdfLocked.title}</p>
+                <p className="mt-1 text-sm text-amber-50/90">{pdfLocked.message}</p>
               </div>
 
               <div className="flex gap-2">
                 <a
                   href="/pricing"
-                  className="px-3 py-1.5 rounded-full bg-amber-500 text-xs font-medium text-slate-950 hover:bg-amber-400"
+                  className="px-3 py-1.5 rounded-full bg-amber-400 text-xs font-semibold text-slate-950 hover:bg-amber-300"
                 >
                   Upgrade to Pro
                 </a>
                 <button
                   onClick={() => setPdfLocked(null)}
-                  className="px-3 py-1.5 rounded-full border border-amber-300 bg-white text-xs font-medium text-amber-900 hover:bg-amber-100"
+                  className="px-3 py-1.5 rounded-full border border-amber-400/30 bg-transparent text-xs font-medium text-amber-100 hover:bg-amber-400/10"
                 >
                   Dismiss
                 </button>
@@ -494,27 +536,27 @@ export default function PolicyDetailClient({
           </div>
         ) : null}
 
-        <div className="flex flex-wrap items-start justify-between mb-6 gap-4">
-          <div>
-            <p className="uppercase text-xs font-semibold text-slate-500 tracking-[0.14em]">PolicySprint AI</p>
-            <h1 className="text-3xl font-semibold text-slate-900 mt-1">{policy.title || "AI Use Policy"}</h1>
+        {/* Header */}
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between mb-6">
+          <div className="min-w-0">
+            <p className="uppercase text-xs font-semibold text-slate-400 tracking-[0.18em]">PolicySprint AI</p>
+            <h1 className="text-2xl sm:text-3xl font-semibold text-white mt-1 break-words">
+              {policy.title || "AI Use Policy"}
+            </h1>
 
-            <p className="text-sm text-slate-600 mt-1">
-              {policy.businessName && <span>{policy.businessName} · </span>}
-              {policy.industry && <span>{policy.industry} · </span>}
-              {policy.country && <span>{policy.country}</span>}
-            </p>
+            {subtitle ? <p className="text-sm text-slate-300 mt-1">{subtitle}</p> : null}
 
-            <p className="text-xs text-slate-500 mt-1">
+            <p className="text-xs text-slate-400 mt-1">
               Saved on {formatDate(policy.createdAt)} · Current version:{" "}
-              <span className="font-semibold text-slate-700">{policy.version}</span>
+              <span className="font-semibold text-slate-200">{policy.version}</span>
             </p>
           </div>
 
-          <div className="flex flex-wrap gap-2">
+          {/* Desktop actions */}
+          <div className="hidden sm:flex flex-wrap gap-2 justify-end">
             <button
               onClick={() => router.push(`/policies/${policy.id}/edit`)}
-              className="px-3 py-1.5 rounded-full border border-slate-300 text-xs font-medium text-slate-700 hover:bg-white bg-slate-50"
+              className="px-3 py-1.5 rounded-full border border-slate-600/70 text-xs font-medium text-slate-100 hover:bg-slate-800/60 bg-slate-900/40"
             >
               Edit
             </button>
@@ -522,7 +564,7 @@ export default function PolicyDetailClient({
             <button
               onClick={handleDuplicate}
               disabled={duplicating}
-              className="px-3 py-1.5 rounded-full border border-slate-300 text-xs font-medium text-slate-700 hover:bg-white bg-slate-50 disabled:opacity-60"
+              className="px-3 py-1.5 rounded-full border border-slate-600/70 text-xs font-medium text-slate-100 hover:bg-slate-800/60 bg-slate-900/40 disabled:opacity-60"
             >
               {duplicating ? "Duplicating…" : "Duplicate"}
             </button>
@@ -530,7 +572,7 @@ export default function PolicyDetailClient({
             <button
               onClick={handlePreviewPdf}
               disabled={previewingPdf}
-              className="px-3 py-1.5 rounded-full border border-slate-300 text-xs font-medium text-slate-700 hover:bg-white bg-slate-50 disabled:opacity-60"
+              className="px-3 py-1.5 rounded-full border border-slate-600/70 text-xs font-medium text-slate-100 hover:bg-slate-800/60 bg-slate-900/40 disabled:opacity-60"
             >
               {previewingPdf ? "Preparing preview…" : "Preview PDF"}
             </button>
@@ -538,7 +580,7 @@ export default function PolicyDetailClient({
             <button
               onClick={handleDownloadPdf}
               disabled={downloadingPdf}
-              className="px-3 py-1.5 rounded-full bg-slate-900 text-xs font-medium text-white hover:bg-slate-800 disabled:opacity-60 shadow-sm"
+              className="px-3 py-1.5 rounded-full bg-emerald-500 text-xs font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60 shadow-sm"
             >
               {downloadingPdf ? "Preparing…" : "Download PDF"}
             </button>
@@ -546,43 +588,48 @@ export default function PolicyDetailClient({
             <button
               onClick={handleDelete}
               disabled={deleting}
-              className="px-3 py-1.5 rounded-full border border-red-200 bg-red-50 text-xs font-medium text-red-700 hover:bg-red-100 disabled:opacity-60"
+              className="px-3 py-1.5 rounded-full border border-red-400/30 bg-red-500/10 text-xs font-semibold text-red-200 hover:bg-red-500/15 disabled:opacity-60"
             >
               {deleting ? "Deleting…" : "Delete"}
             </button>
           </div>
         </div>
 
-        <section className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
-          <h2 className="text-sm font-semibold text-slate-800 mb-3">Policy content</h2>
+        {/* Content card */}
+        <section className="rounded-3xl border border-slate-800/60 bg-slate-900/40 backdrop-blur p-4 sm:p-6 shadow-lg">
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <h2 className="text-sm font-semibold text-slate-100">Policy content</h2>
+            <span className="text-xs text-slate-400">Saved version</span>
+          </div>
 
-          <div className="max-h-[70vh] overflow-auto bg-slate-50 border border-slate-200 rounded-lg p-4 text-sm leading-relaxed text-slate-900">
+          <div className="max-h-[65vh] overflow-auto rounded-2xl border border-slate-800/70 bg-slate-950/50 p-4 text-sm leading-relaxed text-slate-100">
             {policy.content.split("\n").map((para, i) => (
-              <p key={i} className="mb-3 whitespace-pre-wrap">
+              <p key={i} className="mb-3 whitespace-pre-wrap break-words">
                 {para}
               </p>
             ))}
           </div>
 
-          <p className="text-[11px] text-slate-500 mt-2">
-            This is your saved version. You can edit, duplicate, delete, preview the PDF, or upgrade to download it.
+          <p className="text-[11px] text-slate-400 mt-2">
+            You can edit, duplicate, delete, preview the PDF, or upgrade to download it.
           </p>
         </section>
 
-        <section className="mt-6 bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
-          <div className="flex items-center justify-between gap-3 mb-3">
-            <h2 className="text-sm font-semibold text-slate-800">Version history</h2>
-            <span className="text-xs text-slate-500">Snapshots saved when content changes</span>
+        {/* Version history */}
+        <section className="mt-6 rounded-3xl border border-slate-800/60 bg-slate-900/40 backdrop-blur p-4 sm:p-6 shadow-lg">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3">
+            <h2 className="text-sm font-semibold text-slate-100">Version history</h2>
+            <span className="text-xs text-slate-400">Snapshots saved when content changes</span>
           </div>
 
           {restoreBanner ? (
-            <div className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+            <div className="mb-3 rounded-2xl border border-emerald-400/25 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-50">
               {restoreBanner}
             </div>
           ) : null}
 
           {versions.length === 0 ? (
-            <p className="text-sm text-slate-600">No previous versions yet. Edit the policy content and save snapshots.</p>
+            <p className="text-sm text-slate-300">No previous versions yet. Edit the policy content and save snapshots.</p>
           ) : (
             <div className="space-y-2">
               {versions.map((v) => {
@@ -592,28 +639,28 @@ export default function PolicyDetailClient({
                 return (
                   <div
                     key={v.id}
-                    className="flex flex-wrap items-center justify-between gap-3 border border-slate-200 rounded-xl px-4 py-3 bg-slate-50"
+                    className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border border-slate-800/70 rounded-2xl px-4 py-3 bg-slate-950/30"
                   >
-                    <div className="flex items-center gap-2">
-                      <div>
-                        <p className="text-sm font-medium text-slate-800">Version {v.version}</p>
-                        <p className="text-xs text-slate-500">{formatDate(v.createdAt)}</p>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-slate-100">Version {v.version}</p>
+                        <p className="text-xs text-slate-400">{formatDate(v.createdAt)}</p>
                       </div>
 
                       {isCurrent ? (
-                        <span className="ml-1 inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
+                        <span className="ml-1 inline-flex items-center rounded-full border border-emerald-400/25 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-100">
                           Current
                         </span>
                       ) : null}
                     </div>
 
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
                       <button
                         onClick={() => {
                           setSelectedVersion(v);
                           setPreviewMode("text");
                         }}
-                        className="px-3 py-1.5 rounded-full border border-slate-300 text-xs font-medium text-slate-700 hover:bg-white bg-slate-50"
+                        className="px-3 py-1.5 rounded-full border border-slate-600/70 text-xs font-medium text-slate-100 hover:bg-slate-800/60 bg-slate-900/40"
                       >
                         View
                       </button>
@@ -621,7 +668,7 @@ export default function PolicyDetailClient({
                       <button
                         onClick={() => handleRestore(v)}
                         disabled={restoringVersionId !== null || isCurrent}
-                        className="px-3 py-1.5 rounded-full bg-slate-900 text-xs font-medium text-white hover:bg-slate-800 disabled:opacity-60 shadow-sm"
+                        className="px-3 py-1.5 rounded-full bg-emerald-500 text-xs font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60 shadow-sm"
                         title={isCurrent ? "This snapshot matches the current content" : "Restore this snapshot"}
                       >
                         {isCurrent ? "Restore (Current)" : restoringThis ? "Restoring…" : "Restore"}
@@ -634,14 +681,14 @@ export default function PolicyDetailClient({
           )}
 
           {selectedVersion ? (
-            <div className="mt-4 border border-slate-200 rounded-xl bg-white">
-              <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-slate-200">
-                <div>
-                  <p className="text-sm font-semibold text-slate-800">Viewing version {selectedVersion.version}</p>
-                  <p className="text-xs text-slate-500">{formatDate(selectedVersion.createdAt)}</p>
+            <div className="mt-4 border border-slate-800/70 rounded-3xl bg-slate-950/30 overflow-hidden">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-4 py-3 border-b border-slate-800/70">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-slate-100">Viewing version {selectedVersion.version}</p>
+                  <p className="text-xs text-slate-400">{formatDate(selectedVersion.createdAt)}</p>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   {(() => {
                     const previewIsCurrent = selectedVersion.content === policy.content;
                     const restoringThis = restoringVersionId === selectedVersion.id;
@@ -651,7 +698,7 @@ export default function PolicyDetailClient({
                         <button
                           onClick={() => handleRestore(selectedVersion)}
                           disabled={restoringVersionId !== null || previewIsCurrent}
-                          className="px-3 py-1.5 rounded-full bg-slate-900 text-xs font-medium text-white hover:bg-slate-800 disabled:opacity-60 shadow-sm"
+                          className="px-3 py-1.5 rounded-full bg-emerald-500 text-xs font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60 shadow-sm"
                           title={previewIsCurrent ? "This matches the current content" : "Restore this version"}
                         >
                           {previewIsCurrent ? "Restore (Current)" : restoringThis ? "Restoring…" : "Restore this version"}
@@ -659,7 +706,7 @@ export default function PolicyDetailClient({
 
                         <button
                           onClick={() => setSelectedVersion(null)}
-                          className="px-3 py-1.5 rounded-full border border-slate-300 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                          className="px-3 py-1.5 rounded-full border border-slate-600/70 text-xs font-medium text-slate-100 hover:bg-slate-800/60"
                         >
                           Close
                         </button>
@@ -669,31 +716,31 @@ export default function PolicyDetailClient({
                 </div>
               </div>
 
-              <div className="px-4 py-3 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
-                <div className="text-xs text-slate-600">Compare this snapshot to the current policy content.</div>
+              <div className="px-4 py-3 border-b border-slate-800/70 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div className="text-xs text-slate-400">Compare this snapshot to the current policy content.</div>
 
-                <div className="inline-flex rounded-full border border-slate-300 bg-slate-50 p-1">
+                <div className="inline-flex rounded-full border border-slate-700/70 bg-slate-900/40 p-1 w-full sm:w-auto overflow-x-auto">
                   <button
                     type="button"
                     onClick={() => setPreviewMode("text")}
-                    className={[
-                      "px-3 py-1 rounded-full text-xs font-medium",
+                    className={clsx(
+                      "px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap",
                       previewMode === "text"
-                        ? "bg-white border border-slate-200 text-slate-900 shadow-sm"
-                        : "text-slate-700 hover:bg-white",
-                    ].join(" ")}
+                        ? "bg-slate-950 border border-slate-700/70 text-white shadow-sm"
+                        : "text-slate-200 hover:bg-slate-800/60"
+                    )}
                   >
                     Text
                   </button>
                   <button
                     type="button"
                     onClick={() => setPreviewMode("diff")}
-                    className={[
-                      "px-3 py-1 rounded-full text-xs font-medium",
+                    className={clsx(
+                      "px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap",
                       previewMode === "diff"
-                        ? "bg-white border border-slate-200 text-slate-900 shadow-sm"
-                        : "text-slate-700 hover:bg-white",
-                    ].join(" ")}
+                        ? "bg-slate-950 border border-slate-700/70 text-white shadow-sm"
+                        : "text-slate-200 hover:bg-slate-800/60"
+                    )}
                     disabled={selectedVersion.content === policy.content}
                     title={
                       selectedVersion.content === policy.content
@@ -706,21 +753,21 @@ export default function PolicyDetailClient({
                 </div>
               </div>
 
-              <div className="max-h-[45vh] overflow-auto bg-slate-50 rounded-b-xl p-4 text-sm leading-relaxed text-slate-900">
+              <div className="max-h-[45vh] overflow-auto bg-slate-950/40 p-4 text-sm leading-relaxed text-slate-100">
                 {previewMode === "text" ? (
                   selectedVersion.content.split("\n").map((para, i) => (
-                    <p key={i} className="mb-3 whitespace-pre-wrap">
+                    <p key={i} className="mb-3 whitespace-pre-wrap break-words">
                       {para}
                     </p>
                   ))
                 ) : selectedVersion.content === policy.content ? (
-                  <div className="text-sm text-slate-700">
+                  <div className="text-sm text-slate-200">
                     This snapshot is the same as the current content — no differences to show.
                   </div>
                 ) : diffTooBig ? (
-                  <div className="text-sm text-slate-700">
+                  <div className="text-sm text-slate-200">
                     This policy is too large to diff safely in the browser.
-                    <div className="mt-2 text-xs text-slate-600">
+                    <div className="mt-2 text-xs text-slate-400">
                       Tip: keep sections separated by headings and shorter paragraphs to make diffs faster and easier.
                     </div>
                   </div>
@@ -729,14 +776,12 @@ export default function PolicyDetailClient({
                     {diffRows.map((row, idx) => (
                       <div
                         key={idx}
-                        className={[
-                          "whitespace-pre-wrap rounded-md px-2 py-1 font-mono text-[12px] leading-5 border",
-                          row.kind === "add"
-                            ? "bg-emerald-50 border-emerald-200 text-emerald-900"
-                            : row.kind === "del"
-                            ? "bg-red-50 border-red-200 text-red-900"
-                            : "bg-white border-slate-200 text-slate-800",
-                        ].join(" ")}
+                        className={clsx(
+                          "whitespace-pre-wrap break-words rounded-xl px-3 py-2 font-mono text-[12px] leading-5 border",
+                          row.kind === "add" && "bg-emerald-500/10 border-emerald-400/25 text-emerald-50",
+                          row.kind === "del" && "bg-red-500/10 border-red-400/25 text-red-50",
+                          row.kind === "same" && "bg-slate-950/40 border-slate-800/80 text-slate-100"
+                        )}
                       >
                         <span className="inline-block w-6 opacity-70 select-none">
                           {row.kind === "add" ? "+" : row.kind === "del" ? "-" : " "}
@@ -748,13 +793,80 @@ export default function PolicyDetailClient({
                 )}
               </div>
 
-              <div className="px-4 py-3 text-xs text-slate-500 border-t border-slate-200">
+              <div className="px-4 py-3 text-xs text-slate-400 border-t border-slate-800/70">
                 Tip: restoring will overwrite the current content, but we automatically save a snapshot first.
               </div>
             </div>
           ) : null}
         </section>
       </main>
+
+      {/* Mobile sticky action bar */}
+      <div className="sm:hidden fixed bottom-0 left-0 right-0 z-40">
+        <div className="px-3 pb-3 pt-2 border-t border-slate-800/70 bg-slate-950/75 backdrop-blur">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => router.push(`/policies/${policy.id}/edit`)}
+              className="flex-1 px-3 py-2 rounded-2xl border border-slate-700/70 text-xs font-semibold text-slate-100 hover:bg-slate-800/60 bg-slate-900/40"
+            >
+              Edit
+            </button>
+
+            <button
+              onClick={handlePreviewPdf}
+              disabled={previewingPdf}
+              className="flex-1 px-3 py-2 rounded-2xl border border-slate-700/70 text-xs font-semibold text-slate-100 hover:bg-slate-800/60 bg-slate-900/40 disabled:opacity-60"
+            >
+              {previewingPdf ? "Preview…" : "Preview"}
+            </button>
+
+            <button
+              onClick={handleDownloadPdf}
+              disabled={downloadingPdf}
+              className="flex-1 px-3 py-2 rounded-2xl bg-emerald-500 text-xs font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
+            >
+              {downloadingPdf ? "PDF…" : "Download"}
+            </button>
+
+            <div className="relative" data-mobile-more>
+              <button
+                onClick={() => setMobileMoreOpen((v) => !v)}
+                disabled={primaryDisabled}
+                className="px-3 py-2 rounded-2xl border border-slate-700/70 text-xs font-semibold text-slate-100 hover:bg-slate-800/60 bg-slate-900/40 disabled:opacity-60"
+                aria-haspopup="menu"
+                aria-expanded={mobileMoreOpen}
+              >
+                More
+              </button>
+
+              {mobileMoreOpen ? (
+                <div className="absolute right-0 bottom-12 w-56 rounded-2xl border border-slate-800/80 bg-slate-950/95 backdrop-blur shadow-2xl overflow-hidden">
+                  <button
+                    onClick={() => {
+                      setMobileMoreOpen(false);
+                      handleDuplicate();
+                    }}
+                    disabled={duplicating}
+                    className="w-full text-left px-4 py-3 text-sm text-slate-100 hover:bg-slate-900/60 disabled:opacity-60"
+                  >
+                    {duplicating ? "Duplicating…" : "Duplicate"}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setMobileMoreOpen(false);
+                      handleDelete();
+                    }}
+                    disabled={deleting}
+                    className="w-full text-left px-4 py-3 text-sm text-red-200 hover:bg-red-500/10 disabled:opacity-60"
+                  >
+                    {deleting ? "Deleting…" : "Delete"}
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

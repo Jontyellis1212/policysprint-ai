@@ -1,8 +1,10 @@
+// app/policies/[id]/edit/page.tsx
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import MobileStickyActions from "@/app/components/MobileStickyActions";
 
 type Policy = {
   id: string;
@@ -27,7 +29,7 @@ type SavePayload = {
 export default function EditPolicyPage({
   params,
 }: {
-  params: Promise<{ id: string }>;
+  params: Promise<{ id: string }> | { id: string };
 }) {
   const router = useRouter();
 
@@ -48,8 +50,7 @@ export default function EditPolicyPage({
   const [country, setCountry] = useState("");
   const [content, setContent] = useState("");
 
-  // This flag lets us bypass navigation warnings when we intentionally leave
-  // (e.g., after a successful save).
+  // Bypass navigation warnings when we intentionally leave (after save / cancel).
   const allowNavRef = useRef(false);
 
   useEffect(() => {
@@ -62,10 +63,12 @@ export default function EditPolicyPage({
         setSaveError(null);
         setSaveSuccess(null);
 
-        const { id: rawId } = await params;
+        const resolved = (await Promise.resolve(params)) as { id?: string };
         if (cancelled) return;
 
+        const rawId = resolved?.id;
         const cleanId = typeof rawId === "string" ? rawId.trim() : "";
+
         // Hard guard: prevent /policies/undefined and similar bad states
         if (!cleanId || cleanId === "undefined" || cleanId === "null") {
           setId("");
@@ -74,16 +77,16 @@ export default function EditPolicyPage({
 
         setId(cleanId);
 
-        const res = await fetch(
-          `/api/policies/${encodeURIComponent(cleanId)}`,
-          { cache: "no-store" }
-        );
+        const res = await fetch(`/api/policies/${encodeURIComponent(cleanId)}`, {
+          cache: "no-store",
+        });
+
         if (!res.ok) {
           if (res.status === 404) throw new Error("Policy not found.");
           throw new Error(`Failed to load policy (HTTP ${res.status}).`);
         }
 
-        const json = await res.json();
+        const json = await res.json().catch(() => null);
         const policy: Policy | undefined = json?.data;
 
         if (!policy) throw new Error("API returned no policy data.");
@@ -194,12 +197,10 @@ export default function EditPolicyPage({
 
       if (!res.ok) {
         const text = await res.text().catch(() => "");
-        throw new Error(
-          `Save failed (HTTP ${res.status}).${text ? ` ${text}` : ""}`
-        );
+        throw new Error(`Save failed (HTTP ${res.status}).${text ? ` ${text}` : ""}`);
       }
 
-      const json = await res.json();
+      const json = await res.json().catch(() => null);
       const updated: Policy | undefined = json?.data;
 
       setSaveSuccess("Saved.");
@@ -223,227 +224,216 @@ export default function EditPolicyPage({
     }
   };
 
-  const Shell = ({
-    children,
-  }: {
-    children: React.ReactNode;
-  }) => (
-    <main className="min-h-screen bg-slate-950 text-slate-50">
-      <div className="max-w-4xl mx-auto px-4 pt-12 pb-16">{children}</div>
-    </main>
-  );
-
-  if (loading) {
-    return (
-      <Shell>
-        <header className="mb-8 flex items-center justify-between gap-4">
-          <div className="text-sm font-medium text-slate-200">
-            PolicySprint AI
-            <span className="ml-2 text-xs text-slate-400">
-              · Edit policy
-            </span>
-          </div>
-          <span className="text-[11px] text-slate-400">Early MVP</span>
-        </header>
-
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
-          <h1 className="text-xl font-semibold tracking-tight">Edit Policy</h1>
-          <p className="mt-2 text-sm text-slate-300">Loading…</p>
-        </div>
-      </Shell>
-    );
-  }
-
-  if (error) {
-    return (
-      <Shell>
-        <header className="mb-8 flex items-center justify-between gap-4">
-          <div className="text-sm font-medium text-slate-200">
-            PolicySprint AI
-            <span className="ml-2 text-xs text-slate-400">
-              · Edit policy
-            </span>
-          </div>
-          <span className="text-[11px] text-slate-400">Early MVP</span>
-        </header>
-
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
-          <h1 className="text-xl font-semibold tracking-tight">Edit Policy</h1>
-
-          <div className="mt-3 rounded-xl border border-rose-900/40 bg-rose-950/30 p-4 text-sm text-rose-200">
-            {error}
-          </div>
-
-          <div className="mt-5 text-sm">
-            {id ? (
-              <Link
-                className="text-emerald-300 hover:text-emerald-200"
-                href={`/policies/${encodeURIComponent(id)}`}
-              >
-                Back to policy
-              </Link>
-            ) : (
-              <Link
-                className="text-emerald-300 hover:text-emerald-200"
-                href="/policies"
-              >
-                Back to policies
-              </Link>
-            )}
-          </div>
-        </div>
-      </Shell>
-    );
-  }
+  const card = "rounded-2xl border border-slate-800 bg-slate-900/40 p-5 md:p-6 shadow-sm";
+  const label = "block text-xs font-medium text-slate-200 mb-1";
+  const input =
+    "w-full rounded-xl border border-slate-700 bg-slate-950/60 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:ring-2 focus:ring-emerald-400/40";
+  const btnSecondary =
+    "inline-flex items-center justify-center rounded-full border border-slate-600 px-4 py-2 text-[12px] font-medium text-slate-100 hover:bg-slate-900/60 disabled:opacity-60";
+  const btnPrimary =
+    "inline-flex items-center justify-center rounded-full px-4 py-2 text-[12px] font-semibold disabled:opacity-60";
 
   return (
-    <Shell>
-      <header className="mb-8 flex items-center justify-between gap-4">
-        <div className="text-sm font-medium text-slate-200">
-          PolicySprint AI
-          <span className="ml-2 text-xs text-slate-400">· Edit policy</span>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={handleCancel}
-            className="inline-flex items-center justify-center rounded-full border border-slate-600 px-4 py-2 text-sm text-slate-100 hover:bg-slate-900/60"
-          >
-            Cancel
-          </button>
-
-          <button
-            type="button"
-            onClick={onSave}
-            disabled={saving || !isDirty}
-            title={!isDirty ? "No changes to save" : "Save changes"}
-            className={[
-              "inline-flex items-center justify-center rounded-full px-4 py-2 text-sm font-medium",
-              saving || !isDirty
-                ? "bg-slate-700 text-slate-300 cursor-not-allowed"
-                : "bg-slate-50 text-slate-950 hover:bg-slate-200",
-            ].join(" ")}
-          >
-            {saving ? "Saving…" : "Save"}
-          </button>
-        </div>
-      </header>
-
-      <section className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
-        <div className="flex flex-col gap-1">
-          <h1 className="text-2xl font-semibold tracking-tight">Edit Policy</h1>
-          {original ? (
-            <p className="text-[11px] text-slate-400">
-              ID: <span className="font-mono">{original.id}</span> · Version:{" "}
-              {original.version}
-              {isDirty ? (
-                <span className="ml-2 text-amber-200">· Unsaved changes</span>
-              ) : (
-                <span className="ml-2 text-slate-500">· Up to date</span>
-              )}
-            </p>
-          ) : null}
-        </div>
-
-        {saveError ? (
-          <div className="mt-4 rounded-xl border border-rose-900/40 bg-rose-950/30 p-4 text-sm text-rose-200">
-            {saveError}
-          </div>
-        ) : null}
-
-        {saveSuccess ? (
-          <div className="mt-4 rounded-xl border border-emerald-900/40 bg-emerald-950/20 p-4 text-sm text-emerald-200">
-            {saveSuccess}
-          </div>
-        ) : null}
-
-        <div className="mt-6 grid gap-4">
-          <label className="grid gap-2">
-            <span className="text-sm text-slate-200">
-              Title <span className="text-rose-300">*</span>
-            </span>
-            <input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="e.g. AI Use Policy"
-              className="w-full rounded-xl border border-slate-700 bg-slate-950/60 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
-            />
-          </label>
-
-          <div className="grid gap-4 md:grid-cols-3">
-            <label className="grid gap-2">
-              <span className="text-sm text-slate-200">Business name</span>
-              <input
-                value={businessName}
-                onChange={(e) => setBusinessName(e.target.value)}
-                placeholder="Optional"
-                className="w-full rounded-xl border border-slate-700 bg-slate-950/60 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
-              />
-            </label>
-
-            <label className="grid gap-2">
-              <span className="text-sm text-slate-200">Industry</span>
-              <input
-                value={industry}
-                onChange={(e) => setIndustry(e.target.value)}
-                placeholder="Optional"
-                className="w-full rounded-xl border border-slate-700 bg-slate-950/60 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
-              />
-            </label>
-
-            <label className="grid gap-2">
-              <span className="text-sm text-slate-200">Country</span>
-              <input
-                value={country}
-                onChange={(e) => setCountry(e.target.value)}
-                placeholder="Optional"
-                className="w-full rounded-xl border border-slate-700 bg-slate-950/60 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
-              />
-            </label>
+    <main className="min-h-screen bg-slate-950 text-slate-50">
+      <div className="w-full px-4 py-6 pb-28 md:mx-auto md:max-w-5xl md:py-10 md:pb-0">
+        {/* Top bar (Wizard-style) */}
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <div className="flex h-7 w-7 items-center justify-center rounded-xl bg-slate-50 text-[11px] font-semibold text-slate-950">
+              PS
+            </div>
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">
+                PolicySprint AI
+              </div>
+              <div className="text-[13px] font-medium text-slate-100">Edit policy</div>
+            </div>
           </div>
 
-          <label className="grid gap-2">
-            <span className="text-sm text-slate-200">
-              Content <span className="text-rose-300">*</span>
-            </span>
-            <textarea
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              rows={18}
-              placeholder="Paste or write your policy content here…"
-              className="w-full rounded-xl border border-slate-700 bg-slate-950/60 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
-            />
-          </label>
+          <div className="text-right text-[11px] text-slate-400">
+            {loading ? "Loading…" : isDirty ? "Unsaved changes" : "Up to date"}
+          </div>
+        </div>
 
-          <div className="flex items-center justify-between text-[11px] text-slate-400">
-            <span>
-              {isDirty ? "You have unsaved changes." : "No changes yet."}
-            </span>
+        {loading ? (
+          <section className={card}>
+            <h1 className="text-xl font-semibold text-slate-50">Edit Policy</h1>
+            <p className="mt-2 text-sm text-slate-300">Loading…</p>
+          </section>
+        ) : error ? (
+          <section className={card}>
+            <h1 className="text-xl font-semibold text-slate-50">Edit Policy</h1>
+            <div className="mt-3 rounded-xl border border-rose-900/40 bg-rose-950/30 p-4 text-sm text-rose-200">
+              {error}
+            </div>
 
-            {id ? (
+            <div className="mt-5 flex items-center gap-3">
               <Link
-                className="text-emerald-300 hover:text-emerald-200"
-                href={`/policies/${encodeURIComponent(id)}`}
-                onClick={(e) => {
-                  if (!confirmLoseChanges()) e.preventDefault();
-                }}
+                className="text-emerald-300 hover:text-emerald-200 text-sm"
+                href="/policies"
               >
-                View policy
+                ← Back to policies
               </Link>
-            ) : (
-              <Link className="text-emerald-300 hover:text-emerald-200" href="/policies">
-                Back to policies
-              </Link>
-            )}
-          </div>
-        </div>
-      </section>
+            </div>
+          </section>
+        ) : (
+          <div className="space-y-4">
+            {/* Main editor card */}
+            <section className={card}>
+              <div className="flex flex-col gap-1">
+                <h1 className="text-xl md:text-2xl font-semibold text-slate-50">Edit policy</h1>
 
-      <footer className="mt-8 text-[11px] text-slate-500">
-        PolicySprint AI does not provide legal advice. Always have a qualified
-        lawyer review any policy before use.
-      </footer>
-    </Shell>
+                {original ? (
+                  <p className="text-[11px] text-slate-400">
+                    ID: <span className="font-mono text-slate-200">{original.id}</span> · Version:{" "}
+                    <span className="text-slate-200">{original.version}</span>
+                    {isDirty ? (
+                      <span className="ml-2 text-amber-200">· Unsaved changes</span>
+                    ) : (
+                      <span className="ml-2 text-slate-500">· Up to date</span>
+                    )}
+                  </p>
+                ) : null}
+              </div>
+
+              {saveError ? (
+                <div className="mt-4 rounded-xl border border-rose-900/40 bg-rose-950/30 p-4 text-sm text-rose-200">
+                  {saveError}
+                </div>
+              ) : null}
+
+              {saveSuccess ? (
+                <div className="mt-4 rounded-xl border border-emerald-900/40 bg-emerald-950/20 p-4 text-sm text-emerald-200">
+                  {saveSuccess}
+                </div>
+              ) : null}
+
+              <div className="mt-6 grid gap-4">
+                <div>
+                  <label className={label}>
+                    Title <span className="text-rose-300">*</span>
+                  </label>
+                  <input
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    placeholder="e.g. AI Use Policy"
+                    className={input}
+                  />
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-3">
+                  <div>
+                    <label className={label}>Business name</label>
+                    <input
+                      value={businessName}
+                      onChange={(e) => setBusinessName(e.target.value)}
+                      placeholder="Optional"
+                      className={input}
+                    />
+                  </div>
+
+                  <div>
+                    <label className={label}>Industry</label>
+                    <input
+                      value={industry}
+                      onChange={(e) => setIndustry(e.target.value)}
+                      placeholder="Optional"
+                      className={input}
+                    />
+                  </div>
+
+                  <div>
+                    <label className={label}>Country</label>
+                    <input
+                      value={country}
+                      onChange={(e) => setCountry(e.target.value)}
+                      placeholder="Optional"
+                      className={input}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className={label}>
+                    Content <span className="text-rose-300">*</span>
+                  </label>
+                  <textarea
+                    value={content}
+                    onChange={(e) => setContent(e.target.value)}
+                    rows={18}
+                    placeholder="Paste or write your policy content here…"
+                    className={input + " font-normal"}
+                  />
+                  <p className="mt-2 text-[11px] text-slate-400">
+                    Tip: keep short paragraphs + headings — it makes version diffs and PDF formatting cleaner.
+                  </p>
+                </div>
+
+                <div className="flex items-center justify-between text-[11px] text-slate-400">
+                  <span>{isDirty ? "You have unsaved changes." : "No changes yet."}</span>
+
+                  {id ? (
+                    <Link
+                      className="text-emerald-300 hover:text-emerald-200"
+                      href={`/policies/${encodeURIComponent(id)}`}
+                      onClick={(e) => {
+                        if (!confirmLoseChanges()) e.preventDefault();
+                      }}
+                    >
+                      View policy →
+                    </Link>
+                  ) : (
+                    <Link className="text-emerald-300 hover:text-emerald-200" href="/policies">
+                      Back to policies →
+                    </Link>
+                  )}
+                </div>
+              </div>
+            </section>
+
+            {/* Sticky actions (mobile) / normal flow (desktop) */}
+            <MobileStickyActions>
+              <div className="flex items-center gap-2">
+                <button type="button" onClick={handleCancel} className={btnSecondary}>
+                  Cancel
+                </button>
+
+                <Link
+                  href={id ? `/policies/${encodeURIComponent(id)}` : "/policies"}
+                  className="text-[12px] text-slate-400 hover:text-slate-200 hidden sm:inline"
+                  onClick={(e) => {
+                    if (!confirmLoseChanges()) e.preventDefault();
+                  }}
+                >
+                  Back to policy
+                </Link>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={onSave}
+                  disabled={saving || !isDirty}
+                  title={!isDirty ? "No changes to save" : "Save changes"}
+                  className={[
+                    btnPrimary,
+                    "min-w-[140px] px-5",
+                    saving || !isDirty
+                      ? "bg-slate-700 text-slate-300 cursor-not-allowed"
+                      : "bg-gradient-to-r from-emerald-400 to-emerald-300 text-slate-950 hover:from-emerald-300 hover:to-emerald-200",
+                  ].join(" ")}
+                >
+                  {saving ? "Saving…" : "Save changes"}
+                </button>
+              </div>
+            </MobileStickyActions>
+
+            <p className="text-[11px] text-slate-500">
+              PolicySprint AI does not provide legal advice. Always have a qualified lawyer review any policy before use.
+            </p>
+          </div>
+        )}
+      </div>
+    </main>
   );
 }
