@@ -10,7 +10,6 @@ import PdfPreviewClient from "../components/PdfPreviewClient";
 import MobileStickyActions from "@/app/components/MobileStickyActions";
 import PdfPreviewModal from "../components/PdfPreviewModal";
 
-
 type Step = 1 | 2 | 3;
 type TeamSizeOption = "solo" | "small" | "medium" | "large" | "enterprise";
 type RiskLevel = "low" | "medium" | "high";
@@ -142,14 +141,7 @@ function GenerateButton({ loading, seconds }: { loading: boolean; seconds: numbe
 
           {loading ? (
             <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
-              <circle
-                cx="12"
-                cy="12"
-                r="9"
-                stroke="currentColor"
-                strokeWidth="2.6"
-                className="opacity-25"
-              />
+              <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2.6" className="opacity-25" />
               <path
                 d="M21 12a9 9 0 0 0-9-9"
                 stroke="currentColor"
@@ -778,9 +770,11 @@ export default function WizardPage() {
                           key={tag}
                           type="button"
                           onClick={() => toggleAiTag(tag)}
-                          className={[pillBase, selected ? pillOn : pillOff, isNone ? "border-amber-900/40" : ""].join(
-                            " "
-                          )}
+                          className={[
+                            pillBase,
+                            selected ? pillOn : pillOff,
+                            isNone ? "border-amber-900/40" : "",
+                          ].join(" ")}
                           title={isNone ? "Selecting this clears other usage types" : undefined}
                         >
                           {tag}
@@ -812,7 +806,11 @@ export default function WizardPage() {
                       </div>
 
                       <div className="flex flex-col sm:flex-row gap-2">
-                        <select className={inputSm} value={aiToolPicker} onChange={(e) => setAiToolPicker(e.target.value)}>
+                        <select
+                          className={inputSm}
+                          value={aiToolPicker}
+                          onChange={(e) => setAiToolPicker(e.target.value)}
+                        >
                           {COMMON_AI_TOOLS.map((t) => (
                             <option key={t} value={t}>
                               {t}
@@ -1029,191 +1027,196 @@ export default function WizardPage() {
             </section>
           )}
 
-{/* Step 3 */}
-{step === 3 && result && result.success && (
-  <section className={`${card} space-y-5`}>
-    <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-      <div>
-        <h1 className="text-xl md:text-2xl font-semibold text-slate-50 mb-1">
-          Your AI policy draft is ready
-        </h1>
-        <p className="text-xs md:text-sm text-slate-300 max-w-2xl">
-          Copy this into your own document, tweak the language, and have your lawyer review it before rolling it out to staff.
-        </p>
-      </div>
-
-      {/* Actions: mobile = stacked flow, desktop = inline */}
-      <div className="w-full md:w-auto">
-        <div className="flex flex-col gap-2 md:flex-row md:flex-wrap md:gap-2 md:items-center">
-          {/* Mobile primary: Preview PDF */}
-          <div className="w-full md:hidden">
-            <PdfPreviewModal
-              blobUrl={previewUrl}
-              loading={previewLoading}
-              error={previewError}
-              onRefresh={buildPreview}
-            />
-            <p className="mt-1 text-center text-[10px] text-slate-400">
-              Opens a full-screen preview. Free accounts see a watermark.
-            </p>
-          </div>
-
-          {/* Download */}
-          <button
-            type="button"
-            onClick={handleDownloadPdf}
-            className={[
-              btnSecondary,
-              "w-full md:w-auto",
-              "py-3 md:py-2",
-              "text-[12px] md:text-[11px]",
-            ].join(" ")}
-            disabled={downloadingPdf}
-          >
-            {downloadingPdf ? "Preparing PDF…" : "Download PDF"}
-          </button>
-
-          {/* Save */}
-          <div className="w-full md:w-auto">
-            <SavePolicyButton
-              policyTitle={policyTitleForSave}
-              businessName={form.businessName}
-              industry={form.industry}
-              country={form.country}
-              fullPolicyText={fullPolicyTextForSave}
-            />
-          </div>
-
-          {/* Copy */}
-          <button
-            type="button"
-            onClick={handleCopy}
-            className={[
-              btnSecondary,
-              "w-full md:w-auto",
-              "py-3 md:py-2",
-              "text-[12px] md:text-[11px]",
-            ].join(" ")}
-          >
-            {copied ? "Copied!" : "Copy full draft"}
-          </button>
-        </div>
-      </div>
-    </div>
-
-    {/* ✅ Unified gating banner */}
-    {showGateCard ? (
-      <DownloadGateCard
-        showSignIn={downloadGate.signinRequired}
-        showUpgrade={downloadGate.upgradeRequired}
-        callbackUrl={callbackUrl}
-        pricingHref={pricingHref}
-        title="Unlock downloads"
-        subtitle={
-          downloadGate.message ||
-          "Preview is free. Sign in or upgrade to export PDFs, staff guides, and quizzes."
-        }
-      />
-    ) : null}
-
-    <div className="grid md:grid-cols-[3fr,2fr] gap-4">
-      {/* LEFT */}
-      <div className="space-y-3">
-        <div>
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-[11px] font-medium text-slate-200">AI Use Policy draft</span>
-          </div>
-          <textarea
-            readOnly
-            className="w-full h-72 rounded-xl border border-slate-700 bg-slate-950/60 px-4 py-3 text-[11px] leading-relaxed text-slate-100"
-            value={result.fullText || ""}
-          />
-          <p className="mt-1 text-[10px] text-slate-400">
-            Tip: paste this into your letterhead or policy template, then adjust tone and get sign-off from your legal/compliance advisor.
-          </p>
-        </div>
-
-        {/* PDF preview — desktop only */}
-        <div className="hidden md:block rounded-xl border border-slate-800 bg-slate-950/40 p-3">
-          <div className="flex items-center justify-between gap-3 mb-2">
-            <div>
-              <div className="text-[11px] font-semibold text-slate-100">PDF preview</div>
-              <div className="text-[10px] text-slate-400">
-                This is what your exported PDF will look like. Free accounts see a preview watermark.
+          {/* Step 3 */}
+          {step === 3 && result && result.success && (
+            <section className={`${card} space-y-5`}>
+              <div>
+                <h1 className="text-xl md:text-2xl font-semibold text-slate-50 mb-1">
+                  Your AI policy draft is ready
+                </h1>
+                <p className="text-xs md:text-sm text-slate-300 max-w-2xl">
+                  Copy this into your own document, tweak the language, and have your lawyer review it before rolling it
+                  out to staff.
+                </p>
               </div>
-            </div>
 
-            <button
-              type="button"
-              onClick={buildPreview}
-              disabled={previewLoading}
-              className="inline-flex items-center justify-center rounded-full border border-slate-700 bg-slate-900/40 px-3 py-1.5 text-[11px] text-slate-100 hover:bg-slate-900/70 disabled:opacity-60"
-            >
-              {previewLoading ? "Building…" : "Refresh preview"}
-            </button>
-          </div>
+              {/* ✅ Unified gating banner */}
+              {showGateCard ? (
+                <DownloadGateCard
+                  showSignIn={downloadGate.signinRequired}
+                  showUpgrade={downloadGate.upgradeRequired}
+                  callbackUrl={callbackUrl}
+                  pricingHref={pricingHref}
+                  title="Unlock downloads"
+                  subtitle={
+                    downloadGate.message ||
+                    "Preview is free. Sign in or upgrade to export PDFs, staff guides, and quizzes."
+                  }
+                />
+              ) : null}
 
-          <PdfPreviewClient blobUrl={previewUrl} loading={previewLoading} error={previewError} height={520} />
-        </div>
-      </div>
+              <div className="grid md:grid-cols-[3fr,2fr] gap-4">
+                {/* LEFT */}
+                <div className="space-y-3">
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[11px] font-medium text-slate-200">AI Use Policy draft</span>
+                    </div>
+                    <textarea
+                      readOnly
+                      className="w-full h-72 rounded-xl border border-slate-700 bg-slate-950/60 px-4 py-3 text-[11px] leading-relaxed text-slate-100"
+                      value={result.fullText || ""}
+                    />
+                    <p className="mt-1 text-[10px] text-slate-400">
+                      Tip: paste this into your letterhead or policy template, then adjust tone and get sign-off from
+                      your legal/compliance advisor.
+                    </p>
+                  </div>
 
-      {/* RIGHT */}
-      <div className="space-y-3 text-[11px]">
-        <div className="rounded-xl border border-slate-800 bg-slate-950/40 px-3 py-2">
-          <div className="flex items-center justify-between mb-1">
-            <span className="font-medium text-slate-100">Staff guide</span>
-            <span className="rounded-full bg-emerald-950/40 text-emerald-200 border border-emerald-900/40 px-2 py-0.5 text-[10px]">
-              New
-            </span>
-          </div>
-          <p className="text-slate-300 mb-2">
-            Turn this policy into a short, plain-English summary you can send to your team.
-          </p>
-          <GenerateStaffGuideButton policyText={result.fullText || ""} />
-        </div>
+                  {/* ✅ MOVED: ACTIONS now live directly under the generated policy */}
+                  <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-4">
+                    {/* Big, cannot-miss preview button */}
+                    <div className="w-full">
+                      <PdfPreviewModal
+                        blobUrl={previewUrl}
+                        loading={previewLoading}
+                        error={previewError}
+                        onRefresh={buildPreview}
+                      />
+                      <p className="mt-1 text-center text-[10px] text-slate-400">
+                        Opens a full-screen preview. Free accounts see a watermark.
+                      </p>
+                    </div>
 
-        <div className="rounded-xl border border-slate-800 bg-slate-950/40 px-3 py-2">
-          <div className="flex items-center justify-between mb-1">
-            <span className="font-medium text-slate-100">Training &amp; quiz</span>
-            <span className="rounded-full bg-amber-950/30 text-amber-200 border border-amber-900/30 px-2 py-0.5 text-[10px]">
-              Available
-            </span>
-          </div>
-          <p className="text-slate-300 mb-2">
-            Generate a staff quiz from your policy and export a styled PDF.
-          </p>
-          <Link
-            href="/quiz"
-            className="inline-flex items-center justify-center rounded-full border border-slate-700 bg-slate-950/40 px-3 py-2 text-[12px] font-medium text-slate-100 hover:bg-slate-900/60 w-full md:w-auto"
-          >
-            Open quiz generator →
-          </Link>
-        </div>
+                    <div className="mt-3 flex flex-col gap-2 md:flex-row md:flex-wrap md:items-center">
+                      {/* Download */}
+                      <button
+                        type="button"
+                        onClick={handleDownloadPdf}
+                        className={[
+                          btnSecondary,
+                          "w-full md:w-auto",
+                          "py-3 md:py-2",
+                          "text-[12px] md:text-[11px]",
+                        ].join(" ")}
+                        disabled={downloadingPdf}
+                      >
+                        {downloadingPdf ? "Preparing PDF…" : "Download PDF"}
+                      </button>
 
-        <div className="rounded-xl border border-slate-800 bg-slate-950/40 px-3 py-2">
-          <span className="font-medium text-slate-100">What&apos;s next?</span>
-          <ul className="list-disc pl-4 mt-1 space-y-1 text-slate-300">
-            <li>Copy this draft into a document</li>
-            <li>Review and edit with a lawyer</li>
-            <li>Roll it out to your team</li>
-            <li>Use the staff guide so they actually understand it</li>
-          </ul>
-        </div>
-      </div>
-    </div>
+                      {/* Save */}
+                      <div className="w-full md:w-auto">
+                        <SavePolicyButton
+                          policyTitle={policyTitleForSave}
+                          businessName={form.businessName}
+                          industry={form.industry}
+                          country={form.country}
+                          fullPolicyText={fullPolicyTextForSave}
+                        />
+                      </div>
 
-    <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 text-[11px] text-slate-400">
-      <button type="button" className="underline text-left" onClick={() => setStep(2)}>
-        ← Back to adjust risk &amp; rules
-      </button>
-      <span>General templates only — always review with a qualified lawyer.</span>
-    </div>
-  </section>
-)}
+                      {/* Copy */}
+                      <button
+                        type="button"
+                        onClick={handleCopy}
+                        className={[
+                          btnSecondary,
+                          "w-full md:w-auto",
+                          "py-3 md:py-2",
+                          "text-[12px] md:text-[11px]",
+                        ].join(" ")}
+                      >
+                        {copied ? "Copied!" : "Copy full draft"}
+                      </button>
 
+                      {/* Optional: refresh preview as a small helper on desktop */}
+                      <button
+                        type="button"
+                        onClick={buildPreview}
+                        disabled={previewLoading}
+                        className={[
+                          "inline-flex items-center justify-center rounded-full border border-slate-700 bg-slate-900/40 px-4 py-2",
+                          "text-[11px] text-slate-100 hover:bg-slate-900/70 disabled:opacity-60",
+                          "w-full md:w-auto",
+                        ].join(" ")}
+                      >
+                        {previewLoading ? "Building…" : "Refresh preview"}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* PDF preview — desktop only */}
+                  <div className="hidden md:block rounded-xl border border-slate-800 bg-slate-950/40 p-3">
+                    <div className="flex items-center justify-between gap-3 mb-2">
+                      <div>
+                        <div className="text-[11px] font-semibold text-slate-100">PDF preview</div>
+                        <div className="text-[10px] text-slate-400">
+                          This is what your exported PDF will look like. Free accounts see a preview watermark.
+                        </div>
+                      </div>
+                    </div>
+
+                    <PdfPreviewClient blobUrl={previewUrl} loading={previewLoading} error={previewError} height={520} />
+                  </div>
+                </div>
+
+                {/* RIGHT */}
+                <div className="space-y-3 text-[11px]">
+                  <div className="rounded-xl border border-slate-800 bg-slate-950/40 px-3 py-2">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-medium text-slate-100">Staff guide</span>
+                      <span className="rounded-full bg-emerald-950/40 text-emerald-200 border border-emerald-900/40 px-2 py-0.5 text-[10px]">
+                        New
+                      </span>
+                    </div>
+                    <p className="text-slate-300 mb-2">
+                      Turn this policy into a short, plain-English summary you can send to your team.
+                    </p>
+                    <GenerateStaffGuideButton policyText={result.fullText || ""} />
+                  </div>
+
+                  <div className="rounded-xl border border-slate-800 bg-slate-950/40 px-3 py-2">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-medium text-slate-100">Training &amp; quiz</span>
+                      <span className="rounded-full bg-amber-950/30 text-amber-200 border border-amber-900/30 px-2 py-0.5 text-[10px]">
+                        Available
+                      </span>
+                    </div>
+                    <p className="text-slate-300 mb-2">
+                      Generate a staff quiz from your policy and export a styled PDF.
+                    </p>
+                    <Link
+                      href="/quiz"
+                      className="inline-flex items-center justify-center rounded-full border border-slate-700 bg-slate-950/40 px-3 py-2 text-[12px] font-medium text-slate-100 hover:bg-slate-900/60 w-full md:w-auto"
+                    >
+                      Open quiz generator →
+                    </Link>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-800 bg-slate-950/40 px-3 py-2">
+                    <span className="font-medium text-slate-100">What&apos;s next?</span>
+                    <ul className="list-disc pl-4 mt-1 space-y-1 text-slate-300">
+                      <li>Copy this draft into a document</li>
+                      <li>Review and edit with a lawyer</li>
+                      <li>Roll it out to your team</li>
+                      <li>Use the staff guide so they actually understand it</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 text-[11px] text-slate-400">
+                <button type="button" className="underline text-left" onClick={() => setStep(2)}>
+                  ← Back to adjust risk &amp; rules
+                </button>
+                <span>General templates only — always review with a qualified lawyer.</span>
+              </div>
+            </section>
+          )}
 
           <p className="text-[11px] text-slate-500">
-            This wizard helps you generate general templates only and is not legal advice. Always review your final policy with a qualified lawyer in your jurisdiction.
+            This wizard helps you generate general templates only and is not legal advice. Always review your final
+            policy with a qualified lawyer in your jurisdiction.
           </p>
         </div>
       </div>
