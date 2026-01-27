@@ -25,28 +25,19 @@ export async function POST(req: NextRequest) {
   const mode: "download" | "preview" =
     modeHeader === "preview" ? "preview" : "download";
 
-  // ✅ Gate DOWNLOAD only: email verified + (optional) pro
+  // ✅ Gate DOWNLOAD only:
+  // - If Pro is required: enforce Pro only (do NOT enforce email verification)
+  // - If Pro is NOT required: you may still enforce email verification for free users if desired
   if (mode === "download") {
     const user = await prisma.user.findUnique({
       where: { email },
       select: { emailVerified: true, plan: true },
     });
 
-    if (!user?.emailVerified) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: {
-            code: "EMAIL_NOT_VERIFIED",
-            message: "Please verify your email to download.",
-          },
-        },
-        { status: 403 }
-      );
-    }
+    const plan = user?.plan ?? "free";
 
     if (DOWNLOADS_REQUIRE_PRO) {
-      const plan = user?.plan ?? "free";
+      // Pro gate only
       if (plan !== "pro") {
         return NextResponse.json(
           {
@@ -55,6 +46,21 @@ export async function POST(req: NextRequest) {
               code: "PRO_REQUIRED",
               message: "Upgrade required",
               details: { plan },
+            },
+          },
+          { status: 403 }
+        );
+      }
+      // ✅ Pro users can download immediately — no email verification required
+    } else {
+      // Optional: if downloads are free, you can still require verified email
+      if (!user?.emailVerified) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: {
+              code: "EMAIL_NOT_VERIFIED",
+              message: "Please verify your email to download.",
             },
           },
           { status: 403 }
@@ -96,7 +102,10 @@ export async function POST(req: NextRequest) {
 
 export async function GET() {
   return NextResponse.json(
-    { ok: false, error: { code: "METHOD_NOT_ALLOWED", message: "Method Not Allowed" } },
+    {
+      ok: false,
+      error: { code: "METHOD_NOT_ALLOWED", message: "Method Not Allowed" },
+    },
     { status: 405 }
   );
 }
