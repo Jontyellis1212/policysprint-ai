@@ -53,14 +53,9 @@ export default function RootLayout({
         <div className="min-h-screen flex flex-col">
           <Header />
 
-          {/* 
-            Global sticky-header offset:
-            - mobile header ≈ 56–64px
-            - desktop header ≈ 80–88px
-          */}
-          <main className="flex-1 pt-16 md:pt-20">
-            {children}
-          </main>
+          {/* Content should start immediately under the header.
+              If Header is fixed, handle spacing inside Header itself (or we can re-add a precise offset). */}
+          <main className="flex-1">{children}</main>
 
           <Footer />
         </div>
