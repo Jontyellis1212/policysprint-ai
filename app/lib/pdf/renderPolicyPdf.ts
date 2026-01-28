@@ -524,7 +524,9 @@ export async function renderPdfBuffer(payload: PdfPayload, mode: "download" | "p
 
   const contentsText = normalizePreserveLines(s(payload.contentsText, ""));
   const policyText = normalizePreserveLines(s(payload.policyText, "Policy body not provided."));
-  const disclaimerText = normalizePreserveLines(s(payload.disclaimerText, ""));
+  // We still accept disclaimerText in the payload (for future use),
+  // but we no longer render it as its own standalone "Disclaimer" section page.
+  const _disclaimerText = normalizePreserveLines(s(payload.disclaimerText, ""));
 
   const MAX_TOTAL_PAGES = 18;
   const MAX_SECTION_PAGES = 10;
@@ -592,14 +594,9 @@ export async function renderPdfBuffer(payload: PdfPayload, mode: "download" | "p
       maxSectionPages: MAX_SECTION_PAGES,
     });
   }
-  if (canAddMore()) {
-    addSection(doc, "Disclaimer", disclaimerText, {
-      mode,
-      state,
-      maxTotalPages: MAX_TOTAL_PAGES,
-      maxSectionPages: MAX_SECTION_PAGES,
-    });
-  }
+
+  // ❌ Removed: standalone Disclaimer section page
+  // (Cover already includes a subtle “template only — not legal advice” line.)
 
   drawFootersWithTotalPages(doc);
   doc.end();
