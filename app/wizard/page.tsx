@@ -9,6 +9,7 @@ import { SavePolicyButton } from "../components/SavePolicyButton";
 import PdfPreviewClient from "../components/PdfPreviewClient";
 import MobileStickyActions from "@/app/components/MobileStickyActions";
 import PdfPreviewModal from "../components/PdfPreviewModal";
+import { usePostHog } from "posthog-js/react";
 
 type Step = 1 | 2 | 3;
 type TeamSizeOption = "solo" | "small" | "medium" | "large" | "enterprise";
@@ -52,14 +53,7 @@ const TEAM_SIZE_LABELS: Record<TeamSizeOption, string> = {
   enterprise: "250+ people",
 };
 
-const AI_USAGE_TAGS = [
-  "None currently",
-  "Marketing & content",
-  "Customer support",
-  "Internal documents",
-  "Coding / technical",
-  "Other",
-];
+const AI_USAGE_TAGS = ["None currently", "Marketing & content", "Customer support", "Internal documents", "Coding / technical", "Other"];
 
 const COMMON_AI_TOOLS = [
   "ChatGPT",
@@ -80,13 +74,7 @@ const COMMON_AI_TOOLS = [
   "Other / custom",
 ];
 
-const CONCERN_TAGS = [
-  "Data privacy",
-  "Accuracy & hallucinations",
-  "Copyright & IP",
-  'Unapproved tools (“shadow AI”)',
-  "Bias & fairness",
-];
+const CONCERN_TAGS = ["Data privacy", "Accuracy & hallucinations", "Copyright & IP", 'Unapproved tools (“shadow AI”)', "Bias & fairness"];
 
 type DownloadGateState = {
   signinRequired: boolean;
@@ -112,9 +100,7 @@ function GenerateButton({ loading, seconds }: { loading: boolean; seconds: numbe
   return (
     <div className="flex flex-col items-end gap-2">
       <div className="relative">
-        {loading ? (
-          <div className="pointer-events-none absolute -inset-2 rounded-full bg-emerald-400/25 blur-xl animate-pulse" />
-        ) : null}
+        {loading ? <div className="pointer-events-none absolute -inset-2 rounded-full bg-emerald-400/25 blur-xl animate-pulse" /> : null}
 
         <button
           type="submit"
@@ -142,13 +128,7 @@ function GenerateButton({ loading, seconds }: { loading: boolean; seconds: numbe
           {loading ? (
             <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
               <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2.6" className="opacity-25" />
-              <path
-                d="M21 12a9 9 0 0 0-9-9"
-                stroke="currentColor"
-                strokeWidth="2.6"
-                strokeLinecap="round"
-                className="opacity-90"
-              />
+              <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" className="opacity-90" />
             </svg>
           ) : null}
 
@@ -188,8 +168,7 @@ function buildContentsText(result: GenerateResult | null): string {
   for (const l of lines) {
     const cleaned = l.replace(/^#+\s*/, "");
     const isNumbered = /^\d+(\.|\))\s+/.test(cleaned);
-    const isAllCapsShort =
-      cleaned.length <= 60 && cleaned === cleaned.toUpperCase() && /[A-Z]/.test(cleaned);
+    const isAllCapsShort = cleaned.length <= 60 && cleaned === cleaned.toUpperCase() && /[A-Z]/.test(cleaned);
 
     const looksLikeHeading =
       isNumbered ||
@@ -241,6 +220,8 @@ function composeAiUsageNotes(notes: string, tools: string[]): string {
 }
 
 export default function WizardPage() {
+  const posthog = usePostHog();
+
   const [step, setStep] = useState<Step>(1);
 
   const [form, setForm] = useState<WizardFormState>({
@@ -283,6 +264,50 @@ export default function WizardPage() {
 
   const previewAbortRef = useRef<AbortController | null>(null);
 
+  // -----------------------------
+  // PostHog helpers
+  // -----------------------------
+  const getDemoFlag = () => {
+    if (typeof window === "undefined") return false;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      return params.get("demo") === "1";
+    } catch {
+      return false;
+    }
+  };
+
+  const track = (event: string, props?: Record<string, any>) => {
+    try {
+      posthog?.capture(event, {
+        app: "policysprint",
+        page: "wizard",
+        step,
+        demo: getDemoFlag(),
+        ...props,
+      });
+    } catch {
+      // no-op
+    }
+  };
+
+  // Track wizard start (once) + step views
+  const didTrackStartRef = useRef(false);
+  useEffect(() => {
+    if (didTrackStartRef.current) return;
+    didTrackStartRef.current = true;
+
+    track("ps_wizard_started", {
+      country: form.country,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    track("ps_wizard_step_viewed", { step });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step]);
+
   const toggleAiTag = (tag: string) => {
     setForm((prev) => {
       const exists = prev.aiUsageTags.includes(tag);
@@ -323,8 +348,23 @@ export default function WizardPage() {
     e.preventDefault();
     if (!form.businessName || !form.industry) {
       alert("Please fill in at least your business name and industry.");
+      track("ps_wizard_step1_validation_failed", {
+        has_businessName: !!form.businessName,
+        has_industry: !!form.industry,
+      });
       return;
     }
+
+    track("ps_wizard_step1_continue", {
+      country: form.country,
+      teamSize: form.teamSize,
+      aiUsageTags: form.aiUsageTags,
+      aiToolsCount: aiToolsUsed.length,
+      has_notes: !!form.aiUsageNotes?.trim(),
+      has_businessName: true,
+      has_industry: true,
+    });
+
     setStep(2);
     setResult(null);
     setErrorMessage(null);
@@ -332,6 +372,7 @@ export default function WizardPage() {
   };
 
   const handleBackFromStep2 = () => {
+    track("ps_wizard_step2_back");
     setStep(1);
     setCopied(false);
   };
@@ -341,6 +382,15 @@ export default function WizardPage() {
     setErrorMessage(null);
     setResult(null);
     setCopied(false);
+
+    track("ps_wizard_generate_clicked", {
+      riskLevel: payload.riskLevel,
+      riskPosture: payload.riskPosture,
+      whoCanUse: payload.whoCanUse,
+      concerns: payload.mainConcerns,
+      aiToolsCount: aiToolsUsed.length,
+      approvedToolsText_len: (payload.approvedToolsText || "").length,
+    });
 
     // Reset gates
     setDownloadGate({ signinRequired: false, upgradeRequired: false, message: null });
@@ -372,6 +422,12 @@ export default function WizardPage() {
       if (!response.ok) {
         const text = await response.text();
         console.error("Non-OK response from /api/generate:", text);
+
+        track("ps_wizard_generate_failed", {
+          http_status: response.status,
+          reason: "non_ok_response",
+        });
+
         setErrorMessage("Server error while generating policy draft.");
         return;
       }
@@ -380,12 +436,28 @@ export default function WizardPage() {
       setResult(data);
 
       if (!data.success) {
+        track("ps_wizard_generate_failed", {
+          http_status: 200,
+          reason: "success_false",
+          error: data.error || null,
+        });
+
         setErrorMessage(data.error || "Something went wrong.");
       } else {
+        track("ps_wizard_generate_succeeded", {
+          policy_chars: (data.fullText || "").length,
+          has_preview_sample: !!data.policyPreview?.sampleSection?.length,
+        });
+
         setStep(3);
       }
     } catch (err) {
       console.error("Error calling /api/generate:", err);
+
+      track("ps_wizard_generate_failed", {
+        reason: "network_or_exception",
+      });
+
       setErrorMessage("Network error while calling /api/generate.");
     } finally {
       clearInterval(interval);
@@ -400,12 +472,19 @@ export default function WizardPage() {
 
   const handleCopy = async () => {
     if (!result?.fullText) return;
+
+    track("ps_wizard_copy_clicked", {
+      policy_chars: result.fullText.length,
+    });
+
     try {
       await navigator.clipboard.writeText(result.fullText);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
+      track("ps_wizard_copy_succeeded");
     } catch (e) {
       console.error("Copy failed:", e);
+      track("ps_wizard_copy_failed");
     }
   };
 
@@ -423,6 +502,12 @@ export default function WizardPage() {
 
   const handleDownloadPdf = async () => {
     if (!result?.fullText) return;
+
+    track("ps_wizard_pdf_download_clicked", {
+      businessName_len: (form.businessName || "").length,
+      industry_len: (form.industry || "").length,
+      policy_chars: result.fullText.length,
+    });
 
     try {
       setDownloadingPdf(true);
@@ -444,6 +529,7 @@ export default function WizardPage() {
       });
 
       if (res.status === 401) {
+        track("ps_wizard_pdf_download_gated", { gate: "signin" });
         setDownloadGate({
           signinRequired: true,
           upgradeRequired: false,
@@ -453,6 +539,7 @@ export default function WizardPage() {
       }
 
       if (res.status === 403) {
+        track("ps_wizard_pdf_download_gated", { gate: "upgrade" });
         setDownloadGate({
           signinRequired: false,
           upgradeRequired: true,
@@ -463,6 +550,7 @@ export default function WizardPage() {
 
       if (!res.ok) {
         console.error("Failed to generate PDF", await res.text());
+        track("ps_wizard_pdf_download_failed", { http_status: res.status });
         alert("Failed to generate PDF. Please try again.");
         return;
       }
@@ -481,8 +569,11 @@ export default function WizardPage() {
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
+
+      track("ps_wizard_pdf_download_succeeded");
     } catch (err) {
       console.error("Error downloading PDF:", err);
+      track("ps_wizard_pdf_download_failed", { reason: "exception" });
       alert("Something went wrong while downloading the PDF.");
     } finally {
       setDownloadingPdf(false);
@@ -514,6 +605,10 @@ export default function WizardPage() {
     const policyText = (result?.fullText || "").trim();
     if (!policyText) return;
 
+    track("ps_wizard_pdf_preview_build_started", {
+      policy_chars: policyText.length,
+    });
+
     setPreviewLoading(true);
     setPreviewError(null);
 
@@ -533,6 +628,7 @@ export default function WizardPage() {
 
       if (!res.ok) {
         const txt = await res.text().catch(() => "");
+        track("ps_wizard_pdf_preview_build_failed", { http_status: res.status });
         throw new Error(txt?.trim() ? txt.slice(0, 200) : "Failed to generate preview.");
       }
 
@@ -543,9 +639,12 @@ export default function WizardPage() {
         if (old) URL.revokeObjectURL(old);
         return url;
       });
+
+      track("ps_wizard_pdf_preview_build_succeeded");
     } catch (e: any) {
       if (e?.name === "AbortError") return;
       setPreviewError(e?.message || "Failed to generate preview.");
+      track("ps_wizard_pdf_preview_build_failed", { reason: e?.message || "unknown" });
     } finally {
       if (previewAbortRef.current === controller) {
         previewAbortRef.current = null;
@@ -606,8 +705,12 @@ export default function WizardPage() {
 
       setStep(2);
       setDemoInitialised(true);
+
+      track("ps_wizard_demo_autostarted");
+
       void callGenerate(demoForm);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [demoInitialised]);
 
   const card = "rounded-2xl border border-slate-800 bg-slate-900/40 p-5 md:p-6 shadow-sm";
@@ -627,23 +730,24 @@ export default function WizardPage() {
 
   const progressWidth = step === 1 ? "33.333%" : step === 2 ? "66.666%" : "100%";
   const helperText =
-    step === 1
-      ? "Add business basics to tailor the draft."
-      : step === 2
-      ? "Set risk posture and allowed tools."
-      : "Copy, preview PDF, and save to dashboard.";
+    step === 1 ? "Add business basics to tailor the draft." : step === 2 ? "Set risk posture and allowed tools." : "Copy, preview PDF, and save to dashboard.";
 
   const addPickedTool = () => {
     const t = (aiToolPicker || "").trim();
     if (!t) return;
     setAiToolsUsed((prev) => (prev.includes(t) ? prev : [...prev, t]));
+    track("ps_wizard_ai_tool_added", { tool: t });
   };
 
   const removeTool = (t: string) => {
     setAiToolsUsed((prev) => prev.filter((x) => x !== t));
+    track("ps_wizard_ai_tool_removed", { tool: t });
   };
 
-  const clearTools = () => setAiToolsUsed([]);
+  const clearTools = () => {
+    setAiToolsUsed([]);
+    track("ps_wizard_ai_tools_cleared");
+  };
 
   const showGateCard = downloadGate.signinRequired || downloadGate.upgradeRequired;
 
@@ -654,13 +758,9 @@ export default function WizardPage() {
         {/* Top bar */}
         <div className="mb-4 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <div className="flex h-7 w-7 items-center justify-center rounded-xl bg-slate-50 text-[11px] font-semibold text-slate-950">
-              PS
-            </div>
+            <div className="flex h-7 w-7 items-center justify-center rounded-xl bg-slate-50 text-[11px] font-semibold text-slate-950">PS</div>
             <div>
-              <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">
-                PolicySprint AI
-              </div>
+              <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">PolicySprint AI</div>
               <div className="text-[13px] font-medium text-slate-100">AI policy wizard</div>
             </div>
           </div>
@@ -689,12 +789,9 @@ export default function WizardPage() {
           {step === 1 && (
             <section className={`${card} space-y-4`}>
               <div>
-                <h1 className="text-xl md:text-2xl font-semibold text-slate-50 mb-1">
-                  Tell us about your business
-                </h1>
+                <h1 className="text-xl md:text-2xl font-semibold text-slate-50 mb-1">Tell us about your business</h1>
                 <p className="text-xs md:text-sm text-slate-300 max-w-2xl">
-                  We&apos;ll use this to tailor your AI Use Policy, staff guide and training examples to your size,
-                  industry and how you actually use AI today.
+                  We&apos;ll use this to tailor your AI Use Policy, staff guide and training examples to your size, industry and how you actually use AI today.
                 </p>
               </div>
 
@@ -702,12 +799,7 @@ export default function WizardPage() {
                 <div className="grid md:grid-cols-2 gap-4">
                   <div>
                     <label className={label}>Business name</label>
-                    <input
-                      className={inputSm}
-                      placeholder="e.g. Bondi Physio Clinic"
-                      value={form.businessName}
-                      onChange={handleChange("businessName")}
-                    />
+                    <input className={inputSm} placeholder="e.g. Bondi Physio Clinic" value={form.businessName} onChange={handleChange("businessName")} />
                   </div>
                   <div>
                     <label className={label}>Country / region</label>
@@ -725,12 +817,7 @@ export default function WizardPage() {
                 <div className="grid md:grid-cols-2 gap-4">
                   <div>
                     <label className={label}>Industry</label>
-                    <input
-                      className={inputSm}
-                      placeholder="e.g. Allied health / physiotherapy"
-                      value={form.industry}
-                      onChange={handleChange("industry")}
-                    />
+                    <input className={inputSm} placeholder="e.g. Allied health / physiotherapy" value={form.industry} onChange={handleChange("industry")} />
                   </div>
                   <div>
                     <label className={label}>Team size</label>
@@ -741,11 +828,11 @@ export default function WizardPage() {
                           <button
                             key={key}
                             type="button"
-                            onClick={() => setForm((prev) => ({ ...prev, teamSize: key }))}
-                            className={[
-                              "rounded-full border px-3 py-1 text-[11px] transition text-left",
-                              selected ? pillOn : pillOff,
-                            ].join(" ")}
+                            onClick={() => {
+                              setForm((prev) => ({ ...prev, teamSize: key }));
+                              track("ps_wizard_team_size_selected", { teamSize: key });
+                            }}
+                            className={["rounded-full border px-3 py-1 text-[11px] transition text-left", selected ? pillOn : pillOff].join(" ")}
                           >
                             {TEAM_SIZE_LABELS[key]}
                           </button>
@@ -757,9 +844,7 @@ export default function WizardPage() {
 
                 <div>
                   <label className={label}>How do you use AI today?</label>
-                  <p className={`${hint} mb-2`}>
-                    Choose the options that fit, optionally pick common tools, then add any extra detail.
-                  </p>
+                  <p className={`${hint} mb-2`}>Choose the options that fit, optionally pick common tools, then add any extra detail.</p>
 
                   <div className="flex flex-wrap gap-2 mb-3">
                     {AI_USAGE_TAGS.map((tag) => {
@@ -769,12 +854,11 @@ export default function WizardPage() {
                         <button
                           key={tag}
                           type="button"
-                          onClick={() => toggleAiTag(tag)}
-                          className={[
-                            pillBase,
-                            selected ? pillOn : pillOff,
-                            isNone ? "border-amber-900/40" : "",
-                          ].join(" ")}
+                          onClick={() => {
+                            toggleAiTag(tag);
+                            track("ps_wizard_ai_usage_tag_toggled", { tag });
+                          }}
+                          className={[pillBase, selected ? pillOn : pillOff, isNone ? "border-amber-900/40" : ""].join(" ")}
                           title={isNone ? "Selecting this clears other usage types" : undefined}
                         >
                           {tag}
@@ -789,8 +873,7 @@ export default function WizardPage() {
                         <div>
                           <div className="text-[11px] font-medium text-slate-200">Common AI tools used (optional)</div>
                           <div className="text-[10px] text-slate-400">
-                            This helps the policy call out specific tools. It will be included in your “How we use AI”
-                            notes.
+                            This helps the policy call out specific tools. It will be included in your “How we use AI” notes.
                           </div>
                         </div>
 
@@ -806,11 +889,7 @@ export default function WizardPage() {
                       </div>
 
                       <div className="flex flex-col sm:flex-row gap-2">
-                        <select
-                          className={inputSm}
-                          value={aiToolPicker}
-                          onChange={(e) => setAiToolPicker(e.target.value)}
-                        >
+                        <select className={inputSm} value={aiToolPicker} onChange={(e) => setAiToolPicker(e.target.value)}>
                           {COMMON_AI_TOOLS.map((t) => (
                             <option key={t} value={t}>
                               {t}
@@ -853,12 +932,12 @@ export default function WizardPage() {
                     placeholder="e.g. Clinicians use AI to draft templates, admin uses AI to summarise documents..."
                     value={form.aiUsageNotes}
                     onChange={handleChange("aiUsageNotes")}
+                    onBlur={() => track("ps_wizard_ai_usage_notes_blur", { notes_len: (form.aiUsageNotes || "").length })}
                   />
 
                   {aiToolsUsed.length ? (
                     <p className="mt-2 text-[10px] text-slate-400">
-                      This will be included in notes as:{" "}
-                      <span className="text-slate-200">Tools used: {aiToolsUsed.join(", ")}</span>
+                      This will be included in notes as: <span className="text-slate-200">Tools used: {aiToolsUsed.join(", ")}</span>
                     </p>
                   ) : null}
                 </div>
@@ -866,7 +945,11 @@ export default function WizardPage() {
                 {/* ✅ Sticky actions on mobile, normal flow on desktop */}
                 <MobileStickyActions>
                   <div className="flex items-center gap-2">
-                    <Link href="/" className="text-[11px] text-slate-400 hover:text-slate-200">
+                    <Link
+                      href="/"
+                      className="text-[11px] text-slate-400 hover:text-slate-200"
+                      onClick={() => track("ps_wizard_back_to_landing_clicked")}
+                    >
                       ← Back to landing page
                     </Link>
                   </div>
@@ -899,16 +982,15 @@ export default function WizardPage() {
                       {(["low", "medium", "high"] as RiskLevel[]).map((level) => {
                         const selected = form.riskLevel === level;
                         const labelTxt =
-                          level === "low"
-                            ? "Low (mostly public)"
-                            : level === "medium"
-                            ? "Medium"
-                            : "High (health, finance, IDs, etc.)";
+                          level === "low" ? "Low (mostly public)" : level === "medium" ? "Medium" : "High (health, finance, IDs, etc.)";
                         return (
                           <button
                             key={level}
                             type="button"
-                            onClick={() => setForm((prev) => ({ ...prev, riskLevel: level }))}
+                            onClick={() => {
+                              setForm((prev) => ({ ...prev, riskLevel: level }));
+                              track("ps_wizard_risk_level_selected", { riskLevel: level });
+                            }}
                             className={`${pillBase} ${selected ? pillOn : pillOff} text-left`}
                           >
                             {labelTxt}
@@ -923,13 +1005,15 @@ export default function WizardPage() {
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[11px]">
                       {(["strict", "balanced", "open"] as RiskPosture[]).map((p) => {
                         const selected = form.riskPosture === p;
-                        const labelTxt =
-                          p === "strict" ? "Strict (tight rules)" : p === "balanced" ? "Balanced" : "Open (more flexible)";
+                        const labelTxt = p === "strict" ? "Strict (tight rules)" : p === "balanced" ? "Balanced" : "Open (more flexible)";
                         return (
                           <button
                             key={p}
                             type="button"
-                            onClick={() => setForm((prev) => ({ ...prev, riskPosture: p }))}
+                            onClick={() => {
+                              setForm((prev) => ({ ...prev, riskPosture: p }));
+                              track("ps_wizard_risk_posture_selected", { riskPosture: p });
+                            }}
                             className={`${pillBase} ${selected ? pillOn : pillOff} text-left`}
                           >
                             {labelTxt}
@@ -949,7 +1033,10 @@ export default function WizardPage() {
                           type="radio"
                           className="h-3 w-3 accent-emerald-400"
                           checked={form.whoCanUse === "everyone"}
-                          onChange={() => setForm((prev) => ({ ...prev, whoCanUse: "everyone" }))}
+                          onChange={() => {
+                            setForm((prev) => ({ ...prev, whoCanUse: "everyone" }));
+                            track("ps_wizard_who_can_use_selected", { whoCanUse: "everyone" });
+                          }}
                         />
                         <span>Everyone (with guidance)</span>
                       </label>
@@ -958,7 +1045,10 @@ export default function WizardPage() {
                           type="radio"
                           className="h-3 w-3 accent-emerald-400"
                           checked={form.whoCanUse === "approvedRoles"}
-                          onChange={() => setForm((prev) => ({ ...prev, whoCanUse: "approvedRoles" }))}
+                          onChange={() => {
+                            setForm((prev) => ({ ...prev, whoCanUse: "approvedRoles" }));
+                            track("ps_wizard_who_can_use_selected", { whoCanUse: "approvedRoles" });
+                          }}
                         />
                         <span>Only approved roles / teams</span>
                       </label>
@@ -967,7 +1057,10 @@ export default function WizardPage() {
                           type="radio"
                           className="h-3 w-3 accent-emerald-400"
                           checked={form.whoCanUse === "companyToolsOnly"}
-                          onChange={() => setForm((prev) => ({ ...prev, whoCanUse: "companyToolsOnly" }))}
+                          onChange={() => {
+                            setForm((prev) => ({ ...prev, whoCanUse: "companyToolsOnly" }));
+                            track("ps_wizard_who_can_use_selected", { whoCanUse: "companyToolsOnly" });
+                          }}
                         />
                         <span>Only via company-provided AI tools</span>
                       </label>
@@ -981,6 +1074,7 @@ export default function WizardPage() {
                       placeholder={`e.g.\n“ChatGPT for internal drafts, Canva AI for marketing…”`}
                       value={form.approvedToolsText}
                       onChange={handleChange("approvedToolsText")}
+                      onBlur={() => track("ps_wizard_approved_tools_blur", { len: (form.approvedToolsText || "").length })}
                     />
                   </div>
                 </div>
@@ -995,7 +1089,10 @@ export default function WizardPage() {
                         <button
                           key={tag}
                           type="button"
-                          onClick={() => toggleConcernTag(tag)}
+                          onClick={() => {
+                            toggleConcernTag(tag);
+                            track("ps_wizard_concern_toggled", { tag });
+                          }}
                           className={`${pillBase} ${selected ? pillOn : pillOff}`}
                         >
                           {tag}
@@ -1019,9 +1116,7 @@ export default function WizardPage() {
                 </MobileStickyActions>
 
                 {errorMessage && (
-                  <div className="mt-3 rounded-xl border border-rose-900/40 bg-rose-950/30 px-4 py-3 text-[11px] text-rose-200">
-                    {errorMessage}
-                  </div>
+                  <div className="mt-3 rounded-xl border border-rose-900/40 bg-rose-950/30 px-4 py-3 text-[11px] text-rose-200">{errorMessage}</div>
                 )}
               </form>
             </section>
@@ -1031,12 +1126,9 @@ export default function WizardPage() {
           {step === 3 && result && result.success && (
             <section className={`${card} space-y-5`}>
               <div>
-                <h1 className="text-xl md:text-2xl font-semibold text-slate-50 mb-1">
-                  Your AI policy draft is ready
-                </h1>
+                <h1 className="text-xl md:text-2xl font-semibold text-slate-50 mb-1">Your AI policy draft is ready</h1>
                 <p className="text-xs md:text-sm text-slate-300 max-w-2xl">
-                  Copy this into your own document, tweak the language, and have your lawyer review it before rolling it
-                  out to staff.
+                  Copy this into your own document, tweak the language, and have your lawyer review it before rolling it out to staff.
                 </p>
               </div>
 
@@ -1048,10 +1140,7 @@ export default function WizardPage() {
                   callbackUrl={callbackUrl}
                   pricingHref={pricingHref}
                   title="Unlock downloads"
-                  subtitle={
-                    downloadGate.message ||
-                    "Preview is free. Sign in or upgrade to export PDFs, staff guides, and quizzes."
-                  }
+                  subtitle={downloadGate.message || "Preview is free. Sign in or upgrade to export PDFs, staff guides, and quizzes."}
                 />
               ) : null}
 
@@ -1068,8 +1157,7 @@ export default function WizardPage() {
                       value={result.fullText || ""}
                     />
                     <p className="mt-1 text-[10px] text-slate-400">
-                      Tip: paste this into your letterhead or policy template, then adjust tone and get sign-off from
-                      your legal/compliance advisor.
+                      Tip: paste this into your letterhead or policy template, then adjust tone and get sign-off from your legal/compliance advisor.
                     </p>
                   </div>
 
@@ -1077,15 +1165,13 @@ export default function WizardPage() {
                   <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-4">
                     {/* Big, cannot-miss preview button */}
                     <div className="w-full">
-                      <PdfPreviewModal
-                        blobUrl={previewUrl}
-                        loading={previewLoading}
-                        error={previewError}
-                        onRefresh={buildPreview}
-                      />
-                      <p className="mt-1 text-center text-[10px] text-slate-400">
-                        Opens a full-screen preview. Free accounts see a watermark.
-                      </p>
+                      <div
+                        onClick={() => track("ps_wizard_pdf_preview_open_clicked")}
+                        role="presentation"
+                      >
+                        <PdfPreviewModal blobUrl={previewUrl} loading={previewLoading} error={previewError} onRefresh={buildPreview} />
+                      </div>
+                      <p className="mt-1 text-center text-[10px] text-slate-400">Opens a full-screen preview. Free accounts see a watermark.</p>
                     </div>
 
                     <div className="mt-3 flex flex-col gap-2 md:flex-row md:flex-wrap md:items-center">
@@ -1093,19 +1179,14 @@ export default function WizardPage() {
                       <button
                         type="button"
                         onClick={handleDownloadPdf}
-                        className={[
-                          btnSecondary,
-                          "w-full md:w-auto",
-                          "py-3 md:py-2",
-                          "text-[12px] md:text-[11px]",
-                        ].join(" ")}
+                        className={[btnSecondary, "w-full md:w-auto", "py-3 md:py-2", "text-[12px] md:text-[11px]"].join(" ")}
                         disabled={downloadingPdf}
                       >
                         {downloadingPdf ? "Preparing PDF…" : "Download PDF"}
                       </button>
 
                       {/* Save */}
-                      <div className="w-full md:w-auto">
+                      <div className="w-full md:w-auto" onClick={() => track("ps_wizard_save_clicked")}>
                         <SavePolicyButton
                           policyTitle={policyTitleForSave}
                           businessName={form.businessName}
@@ -1119,20 +1200,18 @@ export default function WizardPage() {
                       <button
                         type="button"
                         onClick={handleCopy}
-                        className={[
-                          btnSecondary,
-                          "w-full md:w-auto",
-                          "py-3 md:py-2",
-                          "text-[12px] md:text-[11px]",
-                        ].join(" ")}
+                        className={[btnSecondary, "w-full md:w-auto", "py-3 md:py-2", "text-[12px] md:text-[11px]"].join(" ")}
                       >
                         {copied ? "Copied!" : "Copy full draft"}
                       </button>
 
-                      {/* Optional: refresh preview as a small helper on desktop */}
+                      {/* Optional: refresh preview */}
                       <button
                         type="button"
-                        onClick={buildPreview}
+                        onClick={() => {
+                          track("ps_wizard_pdf_preview_refresh_clicked");
+                          void buildPreview();
+                        }}
                         disabled={previewLoading}
                         className={[
                           "inline-flex items-center justify-center rounded-full border border-slate-700 bg-slate-900/40 px-4 py-2",
@@ -1162,32 +1241,25 @@ export default function WizardPage() {
 
                 {/* RIGHT */}
                 <div className="space-y-3 text-[11px]">
-                  <div className="rounded-xl border border-slate-800 bg-slate-950/40 px-3 py-2">
+                  <div className="rounded-xl border border-slate-800 bg-slate-950/40 px-3 py-2" onClick={() => track("ps_wizard_staff_guide_clicked")}>
                     <div className="flex items-center justify-between mb-1">
                       <span className="font-medium text-slate-100">Staff guide</span>
-                      <span className="rounded-full bg-emerald-950/40 text-emerald-200 border border-emerald-900/40 px-2 py-0.5 text-[10px]">
-                        New
-                      </span>
+                      <span className="rounded-full bg-emerald-950/40 text-emerald-200 border border-emerald-900/40 px-2 py-0.5 text-[10px]">New</span>
                     </div>
-                    <p className="text-slate-300 mb-2">
-                      Turn this policy into a short, plain-English summary you can send to your team.
-                    </p>
+                    <p className="text-slate-300 mb-2">Turn this policy into a short, plain-English summary you can send to your team.</p>
                     <GenerateStaffGuideButton policyText={result.fullText || ""} />
                   </div>
 
                   <div className="rounded-xl border border-slate-800 bg-slate-950/40 px-3 py-2">
                     <div className="flex items-center justify-between mb-1">
                       <span className="font-medium text-slate-100">Training &amp; quiz</span>
-                      <span className="rounded-full bg-amber-950/30 text-amber-200 border border-amber-900/30 px-2 py-0.5 text-[10px]">
-                        Available
-                      </span>
+                      <span className="rounded-full bg-amber-950/30 text-amber-200 border border-amber-900/30 px-2 py-0.5 text-[10px]">Available</span>
                     </div>
-                    <p className="text-slate-300 mb-2">
-                      Generate a staff quiz from your policy and export a styled PDF.
-                    </p>
+                    <p className="text-slate-300 mb-2">Generate a staff quiz from your policy and export a styled PDF.</p>
                     <Link
                       href="/quiz"
                       className="inline-flex items-center justify-center rounded-full border border-slate-700 bg-slate-950/40 px-3 py-2 text-[12px] font-medium text-slate-100 hover:bg-slate-900/60 w-full md:w-auto"
+                      onClick={() => track("ps_wizard_quiz_open_clicked")}
                     >
                       Open quiz generator →
                     </Link>
@@ -1206,7 +1278,14 @@ export default function WizardPage() {
               </div>
 
               <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 text-[11px] text-slate-400">
-                <button type="button" className="underline text-left" onClick={() => setStep(2)}>
+                <button
+                  type="button"
+                  className="underline text-left"
+                  onClick={() => {
+                    track("ps_wizard_step3_back_to_step2");
+                    setStep(2);
+                  }}
+                >
                   ← Back to adjust risk &amp; rules
                 </button>
                 <span>General templates only — always review with a qualified lawyer.</span>
@@ -1215,8 +1294,7 @@ export default function WizardPage() {
           )}
 
           <p className="text-[11px] text-slate-500">
-            This wizard helps you generate general templates only and is not legal advice. Always review your final
-            policy with a qualified lawyer in your jurisdiction.
+            This wizard helps you generate general templates only and is not legal advice. Always review your final policy with a qualified lawyer in your jurisdiction.
           </p>
         </div>
       </div>
