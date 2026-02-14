@@ -194,8 +194,7 @@ function buildContentsText(result: GenerateResult | null): string {
   for (const l of lines) {
     const cleaned = l.replace(/^#+\s*/, "");
     const isNumbered = /^\d+(\.|\))\s+/.test(cleaned);
-    const isAllCapsShort =
-      cleaned.length <= 60 && cleaned === cleaned.toUpperCase() && /[A-Z]/.test(cleaned);
+    const isAllCapsShort = cleaned.length <= 60 && cleaned === cleaned.toUpperCase() && /[A-Z]/.test(cleaned);
 
     const looksLikeHeading =
       isNumbered ||
@@ -297,18 +296,31 @@ export default function WizardPage() {
     leadFiredRef.current = true;
 
     if (typeof window === "undefined") return;
-    const fbq = window.fbq;
-    if (typeof fbq === "function") {
-      try {
-        fbq("track", "Lead");
-      } catch (e) {
-        // swallow — analytics should never break UX
-        console.warn("fbq Lead track failed:", e);
+
+    // Retry a few times in case fbq loads slightly after success
+    const maxAttempts = 10; // ~2s total
+    let attempt = 0;
+
+    const tick = () => {
+      const fbq = window.fbq;
+      if (typeof fbq === "function") {
+        try {
+          fbq("track", "Lead");
+        } catch (e) {
+          console.warn("fbq Lead track failed:", e);
+        }
+        return;
       }
-    } else {
-      // If pixel isn't ready for some reason, don't error and don't retry-spam.
-      console.warn("fbq not available; Lead event not sent.");
-    }
+
+      attempt += 1;
+      if (attempt >= maxAttempts) {
+        console.warn("fbq not available; Lead event not sent.");
+        return;
+      }
+      setTimeout(tick, 200);
+    };
+
+    tick();
   };
 
   const toggleAiTag = (tag: string) => {
@@ -316,9 +328,7 @@ export default function WizardPage() {
       const exists = prev.aiUsageTags.includes(tag);
 
       if (tag === "None currently") {
-        if (exists) {
-          return { ...prev, aiUsageTags: prev.aiUsageTags.filter((t) => t !== tag) };
-        }
+        if (exists) return { ...prev, aiUsageTags: prev.aiUsageTags.filter((t) => t !== tag) };
         return { ...prev, aiUsageTags: ["None currently"] };
       }
 
@@ -413,7 +423,7 @@ export default function WizardPage() {
       if (!data.success) {
         setErrorMessage(data.error || "Something went wrong.");
       } else {
-        // ✅ Meta Pixel Lead: success only, once per generation, right before moving to Step 3
+        // ✅ Meta Pixel Lead: success only, once per generation
         fireMetaLeadOnce();
         setStep(3);
       }
@@ -682,9 +692,7 @@ export default function WizardPage() {
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-50">
-      {/* ✅ pb-28 prevents content being hidden behind the sticky bar on mobile */}
       <div className="w-full px-4 py-6 pb-28 md:mx-auto md:max-w-5xl md:py-10 md:pb-0">
-        {/* Top bar */}
         <div className="mb-4 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <div className="flex h-7 w-7 items-center justify-center rounded-xl bg-slate-50 text-[11px] font-semibold text-slate-950">
@@ -706,7 +714,6 @@ export default function WizardPage() {
           </div>
         </div>
 
-        {/* Progress */}
         <div className="mb-5 space-y-2">
           <div className="h-2 w-full rounded-full bg-slate-900/60 border border-slate-800 overflow-hidden">
             <div className="h-full bg-emerald-300/90 transition-all" style={{ width: progressWidth }} />
@@ -718,13 +725,10 @@ export default function WizardPage() {
         </div>
 
         <div className="space-y-4">
-          {/* Step 1 */}
           {step === 1 && (
             <section className={`${card} space-y-4`}>
               <div>
-                <h1 className="text-xl md:text-2xl font-semibold text-slate-50 mb-1">
-                  Tell us about your business
-                </h1>
+                <h1 className="text-xl md:text-2xl font-semibold text-slate-50 mb-1">Tell us about your business</h1>
                 <p className="text-xs md:text-sm text-slate-300 max-w-2xl">
                   We&apos;ll use this to tailor your AI Use Policy, staff guide and training examples to your size,
                   industry and how you actually use AI today.
@@ -896,7 +900,6 @@ export default function WizardPage() {
                   ) : null}
                 </div>
 
-                {/* ✅ Sticky actions on mobile, normal flow on desktop */}
                 <MobileStickyActions>
                   <div className="flex items-center gap-2">
                     <Link href="/" className="text-[11px] text-slate-400 hover:text-slate-200">
@@ -957,7 +960,11 @@ export default function WizardPage() {
                       {(["strict", "balanced", "open"] as RiskPosture[]).map((p) => {
                         const selected = form.riskPosture === p;
                         const labelTxt =
-                          p === "strict" ? "Strict (tight rules)" : p === "balanced" ? "Balanced" : "Open (more flexible)";
+                          p === "strict"
+                            ? "Strict (tight rules)"
+                            : p === "balanced"
+                            ? "Balanced"
+                            : "Open (more flexible)";
                         return (
                           <button
                             key={p}
@@ -1038,7 +1045,6 @@ export default function WizardPage() {
                   </div>
                 </div>
 
-                {/* ✅ Sticky actions on mobile, normal flow on desktop */}
                 <MobileStickyActions>
                   <div className="flex items-center gap-2">
                     <button type="button" onClick={handleBackFromStep2} className={btnSecondary} disabled={loading}>
@@ -1064,22 +1070,19 @@ export default function WizardPage() {
           {step === 3 && result && result.success && (
             <section className={`${card} space-y-5`}>
               <div>
-                <h1 className="text-xl md:text-2xl font-semibold text-slate-50 mb-1">
-                  Your AI policy draft is ready
-                </h1>
+                <h1 className="text-xl md:text-2xl font-semibold text-slate-50 mb-1">Your AI policy draft is ready</h1>
                 <p className="text-xs md:text-sm text-slate-300 max-w-2xl">
                   Copy this into your own document, tweak the language, and have your lawyer review it before rolling it
                   out to staff.
                 </p>
               </div>
 
-              {/* ✅ Unified gating banner */}
               {showGateCard ? (
                 <DownloadGateCard
                   showSignIn={downloadGate.signinRequired}
                   showUpgrade={downloadGate.upgradeRequired}
-                  callbackUrl={"/wizard"}
-                  pricingHref={"/pricing"}
+                  callbackUrl={callbackUrl}
+                  pricingHref={pricingHref}
                   title="Unlock downloads"
                   subtitle={
                     downloadGate.message ||
@@ -1089,7 +1092,6 @@ export default function WizardPage() {
               ) : null}
 
               <div className="grid md:grid-cols-[3fr,2fr] gap-4">
-                {/* LEFT */}
                 <div className="space-y-3">
                   <div>
                     <div className="flex items-center justify-between mb-1">
@@ -1106,9 +1108,7 @@ export default function WizardPage() {
                     </p>
                   </div>
 
-                  {/* ✅ MOVED: ACTIONS now live directly under the generated policy */}
                   <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-4">
-                    {/* Big, cannot-miss preview button */}
                     <div className="w-full">
                       <PdfPreviewModal
                         blobUrl={previewUrl}
@@ -1122,22 +1122,17 @@ export default function WizardPage() {
                     </div>
 
                     <div className="mt-3 flex flex-col gap-2 md:flex-row md:flex-wrap md:items-center">
-                      {/* Download */}
                       <button
                         type="button"
                         onClick={handleDownloadPdf}
-                        className={[
-                          btnSecondary,
-                          "w-full md:w-auto",
-                          "py-3 md:py-2",
-                          "text-[12px] md:text-[11px]",
-                        ].join(" ")}
+                        className={[btnSecondary, "w-full md:w-auto", "py-3 md:py-2", "text-[12px] md:text-[11px]"].join(
+                          " "
+                        )}
                         disabled={downloadingPdf}
                       >
                         {downloadingPdf ? "Preparing PDF…" : "Download PDF"}
                       </button>
 
-                      {/* Save */}
                       <div className="w-full md:w-auto">
                         <SavePolicyButton
                           policyTitle={policyTitleForSave}
@@ -1148,21 +1143,16 @@ export default function WizardPage() {
                         />
                       </div>
 
-                      {/* Copy */}
                       <button
                         type="button"
                         onClick={handleCopy}
-                        className={[
-                          btnSecondary,
-                          "w-full md:w-auto",
-                          "py-3 md:py-2",
-                          "text-[12px] md:text-[11px]",
-                        ].join(" ")}
+                        className={[btnSecondary, "w-full md:w-auto", "py-3 md:py-2", "text-[12px] md:text-[11px]"].join(
+                          " "
+                        )}
                       >
                         {copied ? "Copied!" : "Copy full draft"}
                       </button>
 
-                      {/* Optional: refresh preview as a small helper on desktop */}
                       <button
                         type="button"
                         onClick={buildPreview}
@@ -1178,7 +1168,6 @@ export default function WizardPage() {
                     </div>
                   </div>
 
-                  {/* PDF preview — desktop only */}
                   <div className="hidden md:block rounded-xl border border-slate-800 bg-slate-950/40 p-3">
                     <div className="flex items-center justify-between gap-3 mb-2">
                       <div>
@@ -1193,7 +1182,6 @@ export default function WizardPage() {
                   </div>
                 </div>
 
-                {/* RIGHT */}
                 <div className="space-y-3 text-[11px]">
                   <div className="rounded-xl border border-slate-800 bg-slate-950/40 px-3 py-2">
                     <div className="flex items-center justify-between mb-1">
