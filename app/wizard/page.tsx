@@ -295,6 +295,9 @@ export default function WizardPage() {
   // ✅ PostHog policy_generated gating: only once per generation
   const policyGeneratedFiredRef = useRef(false);
 
+  // ✅ PostHog policy_generate_failed gating: only once per generation
+  const policyGenerateFailedFiredRef = useRef(false);
+
   const fireMetaLeadOnce = () => {
     if (leadFiredRef.current) return;
     leadFiredRef.current = true;
@@ -349,6 +352,40 @@ export default function WizardPage() {
       });
     } catch (e) {
       console.warn("posthog policy_generated capture failed:", e);
+    }
+  };
+
+  const firePostHogPolicyGenerateFailedOnce = (props: {
+    reason: "non_ok_response" | "success_false_response" | "network_or_fetch_error" | "unexpected_error";
+    httpStatus?: number | null;
+    error?: string | null;
+    country: string;
+    industry: string;
+    teamSize: TeamSizeOption;
+    riskLevel: RiskLevel;
+    riskPosture: RiskPosture;
+    whoCanUse: WizardFormState["whoCanUse"];
+  }) => {
+    if (policyGenerateFailedFiredRef.current) return;
+    policyGenerateFailedFiredRef.current = true;
+
+    // Keep it safe + small (no policy text, no big blobs)
+    const safeError = (props.error || "").toString().trim().slice(0, 180) || null;
+
+    try {
+      posthog.capture("policy_generate_failed", {
+        reason: props.reason,
+        http_status: props.httpStatus ?? null,
+        error: safeError,
+        country: props.country,
+        industry: props.industry,
+        team_size: props.teamSize,
+        risk_level: props.riskLevel,
+        risk_posture: props.riskPosture,
+        who_can_use: props.whoCanUse,
+      });
+    } catch (e) {
+      console.warn("posthog policy_generate_failed capture failed:", e);
     }
   };
 
@@ -412,6 +449,7 @@ export default function WizardPage() {
     // ✅ reset per-generation gating
     leadFiredRef.current = false;
     policyGeneratedFiredRef.current = false;
+    policyGenerateFailedFiredRef.current = false;
 
     // Reset gates
     setDownloadGate({ signinRequired: false, upgradeRequired: false, message: null });
@@ -428,12 +466,13 @@ export default function WizardPage() {
     setGenerateSeconds(0);
     const interval = setInterval(() => setGenerateSeconds((s) => s + 1), 1000);
 
-    try {
-      const payloadToSend: WizardFormState = {
-        ...payload,
-        aiUsageNotes: composeAiUsageNotes(payload.aiUsageNotes, aiToolsUsed),
-      };
+    // Build once so success/failure tracking uses same values
+    const payloadToSend: WizardFormState = {
+      ...payload,
+      aiUsageNotes: composeAiUsageNotes(payload.aiUsageNotes, aiToolsUsed),
+    };
 
+    try {
       const response = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -441,8 +480,21 @@ export default function WizardPage() {
       });
 
       if (!response.ok) {
-        const text = await response.text();
+        const text = await response.text().catch(() => "");
         console.error("Non-OK response from /api/generate:", text);
+
+        firePostHogPolicyGenerateFailedOnce({
+          reason: "non_ok_response",
+          httpStatus: response.status,
+          error: text?.trim() ? text.slice(0, 200) : `HTTP ${response.status}`,
+          country: payloadToSend.country,
+          industry: payloadToSend.industry,
+          teamSize: payloadToSend.teamSize,
+          riskLevel: payloadToSend.riskLevel,
+          riskPosture: payloadToSend.riskPosture,
+          whoCanUse: payloadToSend.whoCanUse,
+        });
+
         setErrorMessage("Server error while generating policy draft.");
         return;
       }
@@ -451,7 +503,21 @@ export default function WizardPage() {
       setResult(data);
 
       if (!data.success) {
-        setErrorMessage(data.error || "Something went wrong.");
+        const errTxt = data.error || "Something went wrong.";
+
+        firePostHogPolicyGenerateFailedOnce({
+          reason: "success_false_response",
+          httpStatus: 200,
+          error: errTxt,
+          country: payloadToSend.country,
+          industry: payloadToSend.industry,
+          teamSize: payloadToSend.teamSize,
+          riskLevel: payloadToSend.riskLevel,
+          riskPosture: payloadToSend.riskPosture,
+          whoCanUse: payloadToSend.whoCanUse,
+        });
+
+        setErrorMessage(errTxt);
       } else {
         // ✅ Track success (only on success, only once per generation)
         fireMetaLeadOnce();
@@ -466,8 +532,21 @@ export default function WizardPage() {
 
         setStep(3);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("Error calling /api/generate:", err);
+
+      firePostHogPolicyGenerateFailedOnce({
+        reason: "network_or_fetch_error",
+        httpStatus: null,
+        error: err?.message ? String(err.message) : "Network error",
+        country: payloadToSend.country,
+        industry: payloadToSend.industry,
+        teamSize: payloadToSend.teamSize,
+        riskLevel: payloadToSend.riskLevel,
+        riskPosture: payloadToSend.riskPosture,
+        whoCanUse: payloadToSend.whoCanUse,
+      });
+
       setErrorMessage("Network error while calling /api/generate.");
     } finally {
       clearInterval(interval);
@@ -732,6 +811,7 @@ export default function WizardPage() {
   return (
     <main className="min-h-screen bg-slate-950 text-slate-50">
       <div className="w-full px-4 py-6 pb-28 md:mx-auto md:max-w-5xl md:py-10 md:pb-0">
+        {/* Top bar */}
         <div className="mb-4 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <div className="flex h-7 w-7 items-center justify-center rounded-xl bg-slate-50 text-[11px] font-semibold text-slate-950">
@@ -753,6 +833,7 @@ export default function WizardPage() {
           </div>
         </div>
 
+        {/* Progress */}
         <div className="mb-5 space-y-2">
           <div className="h-2 w-full rounded-full bg-slate-900/60 border border-slate-800 overflow-hidden">
             <div className="h-full bg-emerald-300/90 transition-all" style={{ width: progressWidth }} />
@@ -942,6 +1023,7 @@ export default function WizardPage() {
                   ) : null}
                 </div>
 
+                {/* ✅ Sticky actions on mobile, normal flow on desktop */}
                 <MobileStickyActions>
                   <div className="flex items-center gap-2">
                     <Link href="/" className="text-[11px] text-slate-400 hover:text-slate-200">
@@ -1087,6 +1169,7 @@ export default function WizardPage() {
                   </div>
                 </div>
 
+                {/* ✅ Sticky actions on mobile, normal flow on desktop */}
                 <MobileStickyActions>
                   <div className="flex items-center gap-2">
                     <button type="button" onClick={handleBackFromStep2} className={btnSecondary} disabled={loading}>
@@ -1121,6 +1204,7 @@ export default function WizardPage() {
                 </p>
               </div>
 
+              {/* ✅ Unified gating banner */}
               {showGateCard ? (
                 <DownloadGateCard
                   showSignIn={downloadGate.signinRequired}
@@ -1136,6 +1220,7 @@ export default function WizardPage() {
               ) : null}
 
               <div className="grid md:grid-cols-[3fr,2fr] gap-4">
+                {/* LEFT */}
                 <div className="space-y-3">
                   <div>
                     <div className="flex items-center justify-between mb-1">
@@ -1152,7 +1237,9 @@ export default function WizardPage() {
                     </p>
                   </div>
 
+                  {/* ✅ MOVED: ACTIONS now live directly under the generated policy */}
                   <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-4">
+                    {/* Big, cannot-miss preview button */}
                     <div className="w-full">
                       <PdfPreviewModal
                         blobUrl={previewUrl}
@@ -1166,6 +1253,7 @@ export default function WizardPage() {
                     </div>
 
                     <div className="mt-3 flex flex-col gap-2 md:flex-row md:flex-wrap md:items-center">
+                      {/* Download */}
                       <button
                         type="button"
                         onClick={handleDownloadPdf}
@@ -1180,6 +1268,7 @@ export default function WizardPage() {
                         {downloadingPdf ? "Preparing PDF…" : "Download PDF"}
                       </button>
 
+                      {/* Save */}
                       <div className="w-full md:w-auto">
                         <SavePolicyButton
                           policyTitle={policyTitleForSave}
@@ -1190,6 +1279,7 @@ export default function WizardPage() {
                         />
                       </div>
 
+                      {/* Copy */}
                       <button
                         type="button"
                         onClick={handleCopy}
@@ -1203,6 +1293,7 @@ export default function WizardPage() {
                         {copied ? "Copied!" : "Copy full draft"}
                       </button>
 
+                      {/* Optional: refresh preview as a small helper on desktop */}
                       <button
                         type="button"
                         onClick={buildPreview}
@@ -1218,6 +1309,7 @@ export default function WizardPage() {
                     </div>
                   </div>
 
+                  {/* PDF preview — desktop only */}
                   <div className="hidden md:block rounded-xl border border-slate-800 bg-slate-950/40 p-3">
                     <div className="flex items-center justify-between gap-3 mb-2">
                       <div>
@@ -1232,6 +1324,7 @@ export default function WizardPage() {
                   </div>
                 </div>
 
+                {/* RIGHT */}
                 <div className="space-y-3 text-[11px]">
                   <div className="rounded-xl border border-slate-800 bg-slate-950/40 px-3 py-2">
                     <div className="flex items-center justify-between mb-1">
