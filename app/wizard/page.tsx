@@ -3,6 +3,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import posthog from "posthog-js";
 import DownloadGateCard from "../components/DownloadGateCard";
 import GenerateStaffGuideButton from "../components/GenerateStaffGuideButton";
 import { SavePolicyButton } from "../components/SavePolicyButton";
@@ -291,6 +292,9 @@ export default function WizardPage() {
   // ✅ Meta Pixel Lead gating: only once per generation
   const leadFiredRef = useRef(false);
 
+  // ✅ PostHog policy_generated gating: only once per generation
+  const policyGeneratedFiredRef = useRef(false);
+
   const fireMetaLeadOnce = () => {
     if (leadFiredRef.current) return;
     leadFiredRef.current = true;
@@ -321,6 +325,31 @@ export default function WizardPage() {
     };
 
     tick();
+  };
+
+  const firePostHogPolicyGeneratedOnce = (props: {
+    country: string;
+    industry: string;
+    teamSize: TeamSizeOption;
+    riskLevel: RiskLevel;
+    riskPosture: RiskPosture;
+    whoCanUse: WizardFormState["whoCanUse"];
+  }) => {
+    if (policyGeneratedFiredRef.current) return;
+    policyGeneratedFiredRef.current = true;
+
+    try {
+      posthog.capture("policy_generated", {
+        country: props.country,
+        industry: props.industry,
+        team_size: props.teamSize,
+        risk_level: props.riskLevel,
+        risk_posture: props.riskPosture,
+        who_can_use: props.whoCanUse,
+      });
+    } catch (e) {
+      console.warn("posthog policy_generated capture failed:", e);
+    }
   };
 
   const toggleAiTag = (tag: string) => {
@@ -380,8 +409,9 @@ export default function WizardPage() {
     setResult(null);
     setCopied(false);
 
-    // ✅ reset Lead gating for THIS generation attempt
+    // ✅ reset per-generation gating
     leadFiredRef.current = false;
+    policyGeneratedFiredRef.current = false;
 
     // Reset gates
     setDownloadGate({ signinRequired: false, upgradeRequired: false, message: null });
@@ -423,8 +453,17 @@ export default function WizardPage() {
       if (!data.success) {
         setErrorMessage(data.error || "Something went wrong.");
       } else {
-        // ✅ Meta Pixel Lead: success only, once per generation
+        // ✅ Track success (only on success, only once per generation)
         fireMetaLeadOnce();
+        firePostHogPolicyGeneratedOnce({
+          country: payloadToSend.country,
+          industry: payloadToSend.industry,
+          teamSize: payloadToSend.teamSize,
+          riskLevel: payloadToSend.riskLevel,
+          riskPosture: payloadToSend.riskPosture,
+          whoCanUse: payloadToSend.whoCanUse,
+        });
+
         setStep(3);
       }
     } catch (err) {
@@ -725,10 +764,13 @@ export default function WizardPage() {
         </div>
 
         <div className="space-y-4">
+          {/* Step 1 */}
           {step === 1 && (
             <section className={`${card} space-y-4`}>
               <div>
-                <h1 className="text-xl md:text-2xl font-semibold text-slate-50 mb-1">Tell us about your business</h1>
+                <h1 className="text-xl md:text-2xl font-semibold text-slate-50 mb-1">
+                  Tell us about your business
+                </h1>
                 <p className="text-xs md:text-sm text-slate-300 max-w-2xl">
                   We&apos;ll use this to tailor your AI Use Policy, staff guide and training examples to your size,
                   industry and how you actually use AI today.
@@ -1070,7 +1112,9 @@ export default function WizardPage() {
           {step === 3 && result && result.success && (
             <section className={`${card} space-y-5`}>
               <div>
-                <h1 className="text-xl md:text-2xl font-semibold text-slate-50 mb-1">Your AI policy draft is ready</h1>
+                <h1 className="text-xl md:text-2xl font-semibold text-slate-50 mb-1">
+                  Your AI policy draft is ready
+                </h1>
                 <p className="text-xs md:text-sm text-slate-300 max-w-2xl">
                   Copy this into your own document, tweak the language, and have your lawyer review it before rolling it
                   out to staff.
@@ -1125,9 +1169,12 @@ export default function WizardPage() {
                       <button
                         type="button"
                         onClick={handleDownloadPdf}
-                        className={[btnSecondary, "w-full md:w-auto", "py-3 md:py-2", "text-[12px] md:text-[11px]"].join(
-                          " "
-                        )}
+                        className={[
+                          btnSecondary,
+                          "w-full md:w-auto",
+                          "py-3 md:py-2",
+                          "text-[12px] md:text-[11px]",
+                        ].join(" ")}
                         disabled={downloadingPdf}
                       >
                         {downloadingPdf ? "Preparing PDF…" : "Download PDF"}
@@ -1146,9 +1193,12 @@ export default function WizardPage() {
                       <button
                         type="button"
                         onClick={handleCopy}
-                        className={[btnSecondary, "w-full md:w-auto", "py-3 md:py-2", "text-[12px] md:text-[11px]"].join(
-                          " "
-                        )}
+                        className={[
+                          btnSecondary,
+                          "w-full md:w-auto",
+                          "py-3 md:py-2",
+                          "text-[12px] md:text-[11px]",
+                        ].join(" ")}
                       >
                         {copied ? "Copied!" : "Copy full draft"}
                       </button>
