@@ -289,6 +289,8 @@ export default function WizardPage() {
 
   const previewAbortRef = useRef<AbortController | null>(null);
 
+  // ========= Tracking / gating =========
+
   // ✅ Meta Pixel Lead gating: only once per generation
   const leadFiredRef = useRef(false);
 
@@ -297,6 +299,43 @@ export default function WizardPage() {
 
   // ✅ PostHog policy_generate_failed gating: only once per generation
   const policyGenerateFailedFiredRef = useRef(false);
+
+  // ✅ Wizard started gating: once per page view (entering Step 2)
+  const wizardStartedFiredRef = useRef(false);
+
+  // ✅ Preview opened gating: once per generation
+  const previewOpenedFiredRef = useRef(false);
+
+  // ✅ Per-generation correlation id + timing
+  const generationIdRef = useRef<string | null>(null);
+  const generationStartMsRef = useRef<number | null>(null);
+
+  const newGenerationId = () => {
+    // Simple, stable, non-PII correlation id
+    return `gen_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+  };
+
+  const baseEventPropsForPayload = (payloadToSend: WizardFormState) => {
+    return {
+      generation_id: generationIdRef.current,
+      country: payloadToSend.country,
+      industry: payloadToSend.industry,
+      team_size: payloadToSend.teamSize,
+      risk_level: payloadToSend.riskLevel,
+      risk_posture: payloadToSend.riskPosture,
+      who_can_use: payloadToSend.whoCanUse,
+      ai_usage_tags_count: (payloadToSend.aiUsageTags || []).length,
+      concerns_count: (payloadToSend.mainConcerns || []).length,
+      tools_selected_count: aiToolsUsed.length,
+    };
+  };
+
+  const generationTimeSeconds = () => {
+    const start = generationStartMsRef.current;
+    if (!start) return null;
+    const secs = (Date.now() - start) / 1000;
+    return Math.max(0, Math.round(secs * 10) / 10); // 0.1s precision
+  };
 
   const fireMetaLeadOnce = () => {
     if (leadFiredRef.current) return;
@@ -330,71 +369,143 @@ export default function WizardPage() {
     tick();
   };
 
-  const firePostHogPolicyGeneratedOnce = (props: {
-    country: string;
-    industry: string;
-    teamSize: TeamSizeOption;
-    riskLevel: RiskLevel;
-    riskPosture: RiskPosture;
-    whoCanUse: WizardFormState["whoCanUse"];
-  }) => {
+  const firePostHogWizardStartedOnce = () => {
+    if (wizardStartedFiredRef.current) return;
+    wizardStartedFiredRef.current = true;
+
+    try {
+      posthog.capture("wizard_started", {
+        step: 2,
+      });
+    } catch (e) {
+      console.warn("posthog wizard_started capture failed:", e);
+    }
+  };
+
+  const firePostHogStep1Completed = (payloadToSend: WizardFormState) => {
+    try {
+      posthog.capture("wizard_step1_completed", {
+        ...baseEventPropsForPayload(payloadToSend),
+        step: 1,
+      });
+    } catch (e) {
+      console.warn("posthog wizard_step1_completed capture failed:", e);
+    }
+  };
+
+  const firePostHogPolicyGeneratedOnce = (payloadToSend: WizardFormState) => {
     if (policyGeneratedFiredRef.current) return;
     policyGeneratedFiredRef.current = true;
 
     try {
       posthog.capture("policy_generated", {
-        country: props.country,
-        industry: props.industry,
-        team_size: props.teamSize,
-        risk_level: props.riskLevel,
-        risk_posture: props.riskPosture,
-        who_can_use: props.whoCanUse,
+        ...baseEventPropsForPayload(payloadToSend),
+        generation_time_seconds: generationTimeSeconds(),
       });
     } catch (e) {
       console.warn("posthog policy_generated capture failed:", e);
     }
   };
 
-  const firePostHogPolicyGenerateFailedOnce = (props: {
-    reason: "non_ok_response" | "success_false_response" | "network_or_fetch_error" | "unexpected_error";
+  const firePostHogPolicyGenerateFailedOnce = (payloadToSend: WizardFormState, props: {
+    reason: "non_ok_response" | "success_false_response" | "network_or_fetch_error";
     httpStatus?: number | null;
     error?: string | null;
-    country: string;
-    industry: string;
-    teamSize: TeamSizeOption;
-    riskLevel: RiskLevel;
-    riskPosture: RiskPosture;
-    whoCanUse: WizardFormState["whoCanUse"];
   }) => {
     if (policyGenerateFailedFiredRef.current) return;
     policyGenerateFailedFiredRef.current = true;
 
-    // Keep it safe + small (no policy text, no big blobs)
     const safeError = (props.error || "").toString().trim().slice(0, 180) || null;
 
     try {
       posthog.capture("policy_generate_failed", {
+        ...baseEventPropsForPayload(payloadToSend),
         reason: props.reason,
         http_status: props.httpStatus ?? null,
         error: safeError,
-        country: props.country,
-        industry: props.industry,
-        team_size: props.teamSize,
-        risk_level: props.riskLevel,
-        risk_posture: props.riskPosture,
-        who_can_use: props.whoCanUse,
+        generation_time_seconds: generationTimeSeconds(),
       });
     } catch (e) {
       console.warn("posthog policy_generate_failed capture failed:", e);
     }
   };
 
+  const firePostHogPreviewOpenedOnce = (payloadToSend: WizardFormState) => {
+    if (previewOpenedFiredRef.current) return;
+    previewOpenedFiredRef.current = true;
+
+    try {
+      posthog.capture("preview_opened", {
+        ...baseEventPropsForPayload(payloadToSend),
+      });
+    } catch (e) {
+      console.warn("posthog preview_opened capture failed:", e);
+    }
+  };
+
+  const firePostHogCopyClicked = (payloadToSend: WizardFormState) => {
+    try {
+      posthog.capture("copy_clicked", {
+        ...baseEventPropsForPayload(payloadToSend),
+      });
+    } catch (e) {
+      console.warn("posthog copy_clicked capture failed:", e);
+    }
+  };
+
+  const firePostHogPdfDownloadClicked = (payloadToSend: WizardFormState) => {
+    try {
+      posthog.capture("pdf_download_clicked", {
+        ...baseEventPropsForPayload(payloadToSend),
+      });
+    } catch (e) {
+      console.warn("posthog pdf_download_clicked capture failed:", e);
+    }
+  };
+
+  const firePostHogPdfDownloadBlocked = (payloadToSend: WizardFormState, reason: "signin_required" | "upgrade_required") => {
+    try {
+      posthog.capture("pdf_download_blocked", {
+        ...baseEventPropsForPayload(payloadToSend),
+        reason,
+      });
+    } catch (e) {
+      console.warn("posthog pdf_download_blocked capture failed:", e);
+    }
+  };
+
+  const firePostHogPdfDownloadSucceeded = (payloadToSend: WizardFormState) => {
+    try {
+      posthog.capture("pdf_download_succeeded", {
+        ...baseEventPropsForPayload(payloadToSend),
+      });
+    } catch (e) {
+      console.warn("posthog pdf_download_succeeded capture failed:", e);
+    }
+  };
+
+  const firePostHogPdfDownloadFailed = (payloadToSend: WizardFormState, error?: string | null) => {
+    const safeError = (error || "").toString().trim().slice(0, 180) || null;
+    try {
+      posthog.capture("pdf_download_failed", {
+        ...baseEventPropsForPayload(payloadToSend),
+        error: safeError,
+      });
+    } catch (e) {
+      console.warn("posthog pdf_download_failed capture failed:", e);
+    }
+  };
+
+  // ========= UI logic =========
+
   const toggleAiTag = (tag: string) => {
     setForm((prev) => {
       const exists = prev.aiUsageTags.includes(tag);
 
       if (tag === "None currently") {
-        if (exists) return { ...prev, aiUsageTags: prev.aiUsageTags.filter((t) => t !== tag) };
+        if (exists) {
+          return { ...prev, aiUsageTags: prev.aiUsageTags.filter((t) => t !== tag) };
+        }
         return { ...prev, aiUsageTags: ["None currently"] };
       }
 
@@ -429,6 +540,11 @@ export default function WizardPage() {
       alert("Please fill in at least your business name and industry.");
       return;
     }
+
+    // Track step1 completion at the moment they successfully proceed.
+    // Use "as is" (tools are separate state and not part of payloadToSend here)
+    firePostHogStep1Completed(form);
+
     setStep(2);
     setResult(null);
     setErrorMessage(null);
@@ -450,6 +566,11 @@ export default function WizardPage() {
     leadFiredRef.current = false;
     policyGeneratedFiredRef.current = false;
     policyGenerateFailedFiredRef.current = false;
+    previewOpenedFiredRef.current = false;
+
+    // ✅ new generation correlation + timer
+    generationIdRef.current = newGenerationId();
+    generationStartMsRef.current = Date.now();
 
     // Reset gates
     setDownloadGate({ signinRequired: false, upgradeRequired: false, message: null });
@@ -483,16 +604,10 @@ export default function WizardPage() {
         const text = await response.text().catch(() => "");
         console.error("Non-OK response from /api/generate:", text);
 
-        firePostHogPolicyGenerateFailedOnce({
+        firePostHogPolicyGenerateFailedOnce(payloadToSend, {
           reason: "non_ok_response",
           httpStatus: response.status,
           error: text?.trim() ? text.slice(0, 200) : `HTTP ${response.status}`,
-          country: payloadToSend.country,
-          industry: payloadToSend.industry,
-          teamSize: payloadToSend.teamSize,
-          riskLevel: payloadToSend.riskLevel,
-          riskPosture: payloadToSend.riskPosture,
-          whoCanUse: payloadToSend.whoCanUse,
         });
 
         setErrorMessage("Server error while generating policy draft.");
@@ -505,46 +620,27 @@ export default function WizardPage() {
       if (!data.success) {
         const errTxt = data.error || "Something went wrong.";
 
-        firePostHogPolicyGenerateFailedOnce({
+        firePostHogPolicyGenerateFailedOnce(payloadToSend, {
           reason: "success_false_response",
           httpStatus: 200,
           error: errTxt,
-          country: payloadToSend.country,
-          industry: payloadToSend.industry,
-          teamSize: payloadToSend.teamSize,
-          riskLevel: payloadToSend.riskLevel,
-          riskPosture: payloadToSend.riskPosture,
-          whoCanUse: payloadToSend.whoCanUse,
         });
 
         setErrorMessage(errTxt);
       } else {
         // ✅ Track success (only on success, only once per generation)
         fireMetaLeadOnce();
-        firePostHogPolicyGeneratedOnce({
-          country: payloadToSend.country,
-          industry: payloadToSend.industry,
-          teamSize: payloadToSend.teamSize,
-          riskLevel: payloadToSend.riskLevel,
-          riskPosture: payloadToSend.riskPosture,
-          whoCanUse: payloadToSend.whoCanUse,
-        });
+        firePostHogPolicyGeneratedOnce(payloadToSend);
 
         setStep(3);
       }
     } catch (err: any) {
       console.error("Error calling /api/generate:", err);
 
-      firePostHogPolicyGenerateFailedOnce({
+      firePostHogPolicyGenerateFailedOnce(payloadToSend, {
         reason: "network_or_fetch_error",
         httpStatus: null,
         error: err?.message ? String(err.message) : "Network error",
-        country: payloadToSend.country,
-        industry: payloadToSend.industry,
-        teamSize: payloadToSend.teamSize,
-        riskLevel: payloadToSend.riskLevel,
-        riskPosture: payloadToSend.riskPosture,
-        whoCanUse: payloadToSend.whoCanUse,
       });
 
       setErrorMessage("Network error while calling /api/generate.");
@@ -561,6 +657,9 @@ export default function WizardPage() {
 
   const handleCopy = async () => {
     if (!result?.fullText) return;
+
+    firePostHogCopyClicked(form);
+
     try {
       await navigator.clipboard.writeText(result.fullText);
       setCopied(true);
@@ -585,6 +684,8 @@ export default function WizardPage() {
   const handleDownloadPdf = async () => {
     if (!result?.fullText) return;
 
+    firePostHogPdfDownloadClicked(form);
+
     try {
       setDownloadingPdf(true);
 
@@ -605,6 +706,7 @@ export default function WizardPage() {
       });
 
       if (res.status === 401) {
+        firePostHogPdfDownloadBlocked(form, "signin_required");
         setDownloadGate({
           signinRequired: true,
           upgradeRequired: false,
@@ -614,6 +716,7 @@ export default function WizardPage() {
       }
 
       if (res.status === 403) {
+        firePostHogPdfDownloadBlocked(form, "upgrade_required");
         setDownloadGate({
           signinRequired: false,
           upgradeRequired: true,
@@ -623,7 +726,9 @@ export default function WizardPage() {
       }
 
       if (!res.ok) {
-        console.error("Failed to generate PDF", await res.text());
+        const txt = await res.text().catch(() => "");
+        console.error("Failed to generate PDF", txt);
+        firePostHogPdfDownloadFailed(form, txt?.trim() ? txt.slice(0, 200) : `HTTP ${res.status}`);
         alert("Failed to generate PDF. Please try again.");
         return;
       }
@@ -642,8 +747,11 @@ export default function WizardPage() {
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
-    } catch (err) {
+
+      firePostHogPdfDownloadSucceeded(form);
+    } catch (err: any) {
       console.error("Error downloading PDF:", err);
+      firePostHogPdfDownloadFailed(form, err?.message ? String(err.message) : "Download error");
       alert("Something went wrong while downloading the PDF.");
     } finally {
       setDownloadingPdf(false);
@@ -736,6 +844,14 @@ export default function WizardPage() {
     };
   }, []);
 
+  // Wizard started: once per page view when Step 2 is entered
+  useEffect(() => {
+    if (step === 2) {
+      firePostHogWizardStartedOnce();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step]);
+
   // Demo mode
   useEffect(() => {
     if (demoInitialised) return;
@@ -808,8 +924,16 @@ export default function WizardPage() {
 
   const showGateCard = downloadGate.signinRequired || downloadGate.upgradeRequired;
 
+  // Helper to ensure preview open tracking has consistent payload (includes tools count etc.)
+  const payloadForTracking = useMemo(() => {
+    // This is safe: it’s only used for tracking props, not for the actual generate call
+    return form;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form, aiToolsUsed.length]);
+
   return (
     <main className="min-h-screen bg-slate-950 text-slate-50">
+      {/* ✅ pb-28 prevents content being hidden behind the sticky bar on mobile */}
       <div className="w-full px-4 py-6 pb-28 md:mx-auto md:max-w-5xl md:py-10 md:pb-0">
         {/* Top bar */}
         <div className="mb-4 flex items-center justify-between gap-3">
@@ -818,9 +942,7 @@ export default function WizardPage() {
               PS
             </div>
             <div>
-              <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">
-                PolicySprint AI
-              </div>
+              <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">PolicySprint AI</div>
               <div className="text-[13px] font-medium text-slate-100">AI policy wizard</div>
             </div>
           </div>
@@ -849,9 +971,7 @@ export default function WizardPage() {
           {step === 1 && (
             <section className={`${card} space-y-4`}>
               <div>
-                <h1 className="text-xl md:text-2xl font-semibold text-slate-50 mb-1">
-                  Tell us about your business
-                </h1>
+                <h1 className="text-xl md:text-2xl font-semibold text-slate-50 mb-1">Tell us about your business</h1>
                 <p className="text-xs md:text-sm text-slate-300 max-w-2xl">
                   We&apos;ll use this to tailor your AI Use Policy, staff guide and training examples to your size,
                   industry and how you actually use AI today.
@@ -930,11 +1050,9 @@ export default function WizardPage() {
                           key={tag}
                           type="button"
                           onClick={() => toggleAiTag(tag)}
-                          className={[
-                            pillBase,
-                            selected ? pillOn : pillOff,
-                            isNone ? "border-amber-900/40" : "",
-                          ].join(" ")}
+                          className={[pillBase, selected ? pillOn : pillOff, isNone ? "border-amber-900/40" : ""].join(
+                            " "
+                          )}
                           title={isNone ? "Selecting this clears other usage types" : undefined}
                         >
                           {tag}
@@ -966,11 +1084,7 @@ export default function WizardPage() {
                       </div>
 
                       <div className="flex flex-col sm:flex-row gap-2">
-                        <select
-                          className={inputSm}
-                          value={aiToolPicker}
-                          onChange={(e) => setAiToolPicker(e.target.value)}
-                        >
+                        <select className={inputSm} value={aiToolPicker} onChange={(e) => setAiToolPicker(e.target.value)}>
                           {COMMON_AI_TOOLS.map((t) => (
                             <option key={t} value={t}>
                               {t}
@@ -1084,11 +1198,7 @@ export default function WizardPage() {
                       {(["strict", "balanced", "open"] as RiskPosture[]).map((p) => {
                         const selected = form.riskPosture === p;
                         const labelTxt =
-                          p === "strict"
-                            ? "Strict (tight rules)"
-                            : p === "balanced"
-                            ? "Balanced"
-                            : "Open (more flexible)";
+                          p === "strict" ? "Strict (tight rules)" : p === "balanced" ? "Balanced" : "Open (more flexible)";
                         return (
                           <button
                             key={p}
@@ -1195,9 +1305,7 @@ export default function WizardPage() {
           {step === 3 && result && result.success && (
             <section className={`${card} space-y-5`}>
               <div>
-                <h1 className="text-xl md:text-2xl font-semibold text-slate-50 mb-1">
-                  Your AI policy draft is ready
-                </h1>
+                <h1 className="text-xl md:text-2xl font-semibold text-slate-50 mb-1">Your AI policy draft is ready</h1>
                 <p className="text-xs md:text-sm text-slate-300 max-w-2xl">
                   Copy this into your own document, tweak the language, and have your lawyer review it before rolling it
                   out to staff.
@@ -1240,7 +1348,13 @@ export default function WizardPage() {
                   {/* ✅ MOVED: ACTIONS now live directly under the generated policy */}
                   <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-4">
                     {/* Big, cannot-miss preview button */}
-                    <div className="w-full">
+                    <div
+                      className="w-full"
+                      onClick={() => {
+                        // best-effort: user intent signal (first click on preview area)
+                        firePostHogPreviewOpenedOnce(payloadForTracking);
+                      }}
+                    >
                       <PdfPreviewModal
                         blobUrl={previewUrl}
                         loading={previewLoading}
@@ -1257,12 +1371,7 @@ export default function WizardPage() {
                       <button
                         type="button"
                         onClick={handleDownloadPdf}
-                        className={[
-                          btnSecondary,
-                          "w-full md:w-auto",
-                          "py-3 md:py-2",
-                          "text-[12px] md:text-[11px]",
-                        ].join(" ")}
+                        className={[btnSecondary, "w-full md:w-auto", "py-3 md:py-2", "text-[12px] md:text-[11px]"].join(" ")}
                         disabled={downloadingPdf}
                       >
                         {downloadingPdf ? "Preparing PDF…" : "Download PDF"}
@@ -1283,12 +1392,7 @@ export default function WizardPage() {
                       <button
                         type="button"
                         onClick={handleCopy}
-                        className={[
-                          btnSecondary,
-                          "w-full md:w-auto",
-                          "py-3 md:py-2",
-                          "text-[12px] md:text-[11px]",
-                        ].join(" ")}
+                        className={[btnSecondary, "w-full md:w-auto", "py-3 md:py-2", "text-[12px] md:text-[11px]"].join(" ")}
                       >
                         {copied ? "Copied!" : "Copy full draft"}
                       </button>
