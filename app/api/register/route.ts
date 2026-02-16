@@ -10,9 +10,11 @@ type RegisterPayload = {
 };
 
 /**
- * Minimal server-side PostHog capture.
- * IMPORTANT (US PostHog Cloud):
- *   - Ingestion host is typically https://us.i.posthog.com (NOT https://us.posthog.com)
+ * Minimal server-side PostHog capture (US Cloud compatible).
+ *
+ * IMPORTANT:
+ * - For US PostHog Cloud, use ingestion host: https://us.i.posthog.com
+ * - Modern ingestion expects a "batch" payload shape at /capture/
  *
  * Uses:
  *   POSTHOG_KEY or NEXT_PUBLIC_POSTHOG_KEY
@@ -22,9 +24,9 @@ async function posthogCapture(opts: {
   distinctId: string;
   event: string;
   properties?: Record<string, any>;
-  uuid?: string;
 }) {
   const apiKey = process.env.POSTHOG_KEY || process.env.NEXT_PUBLIC_POSTHOG_KEY;
+
   if (!apiKey) {
     console.warn("[POSTHOG] Missing POSTHOG_KEY/NEXT_PUBLIC_POSTHOG_KEY (skipping capture)");
     return;
@@ -38,13 +40,16 @@ async function posthogCapture(opts: {
 
   const payload = {
     api_key: apiKey,
-    event: opts.event,
-    distinct_id: opts.distinctId,
-    properties: {
-      ...(opts.properties || {}),
-      source: "register_api",
-    },
-    uuid: opts.uuid,
+    batch: [
+      {
+        event: opts.event,
+        distinct_id: opts.distinctId,
+        properties: {
+          ...(opts.properties || {}),
+          source: "register_api",
+        },
+      },
+    ],
   };
 
   try {
@@ -60,7 +65,6 @@ async function posthogCapture(opts: {
         `[POSTHOG] capture failed: ${res.status} ${res.statusText} host=${host} body=${txt.slice(0, 200)}`
       );
     } else {
-      // Keep this while verifying; you can remove later once confirmed
       console.log(`[POSTHOG] capture ok: event=${opts.event} host=${host}`);
     }
   } catch (err) {
@@ -113,11 +117,10 @@ export async function POST(req: Request) {
       },
     });
 
-    // ✅ Fire signup_completed (server-side, deduped)
+    // ✅ Fire signup_completed (server-side)
     await posthogCapture({
       distinctId: user.id,
       event: "signup_completed",
-      uuid: `signup-${user.id}`, // prevents duplicates if retried
       properties: {
         email_domain: email.split("@")[1] ?? null,
         has_name: Boolean(name),
