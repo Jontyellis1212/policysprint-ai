@@ -8,6 +8,51 @@ type RegisterPayload = {
   name?: string;
 };
 
+/**
+ * Minimal server-side PostHog capture.
+ * Uses:
+ *   POSTHOG_KEY or NEXT_PUBLIC_POSTHOG_KEY
+ *   POSTHOG_HOST or NEXT_PUBLIC_POSTHOG_HOST (defaults to app.posthog.com)
+ */
+async function posthogCapture(opts: {
+  distinctId: string;
+  event: string;
+  properties?: Record<string, any>;
+  uuid?: string;
+}) {
+  const apiKey =
+    process.env.POSTHOG_KEY || process.env.NEXT_PUBLIC_POSTHOG_KEY;
+
+  if (!apiKey) return;
+
+  const host = (
+    process.env.POSTHOG_HOST ||
+    process.env.NEXT_PUBLIC_POSTHOG_HOST ||
+    "https://app.posthog.com"
+  ).replace(/\/+$/, "");
+
+  const payload = {
+    api_key: apiKey,
+    event: opts.event,
+    distinct_id: opts.distinctId,
+    properties: {
+      ...(opts.properties || {}),
+      source: "register_api",
+    },
+    uuid: opts.uuid,
+  };
+
+  try {
+    await fetch(`${host}/capture/`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  } catch (err) {
+    console.warn("PostHog signup capture failed:", err);
+  }
+}
+
 export async function POST(req: Request) {
   try {
     const body = (await req.json()) as RegisterPayload;
@@ -16,7 +61,6 @@ export async function POST(req: Request) {
     const password = body.password;
     const name = body.name?.trim() || null;
 
-    // Basic validation
     if (!email || !password) {
       return NextResponse.json(
         { ok: false, error: "Email and password are required." },
@@ -31,7 +75,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // Check for existing user
     const existing = await prisma.user.findUnique({
       where: { email },
       select: { id: true },
@@ -44,10 +87,8 @@ export async function POST(req: Request) {
       );
     }
 
-    // Hash password
     const passwordHash = await bcrypt.hash(password, 12);
 
-    // Create user (unverified by default)
     const user = await prisma.user.create({
       data: {
         email,
@@ -62,10 +103,27 @@ export async function POST(req: Request) {
       },
     });
 
-    // Send verification email (best-effort; don’t block account creation)
+    // ✅ Fire signup_completed (server-side, deduped)
+    await posthogCapture({
+      distinctId: user.id,
+      event: "signup_completed",
+      uuid: `signup-${user.id}`, // prevents duplicates if retried
+      properties: {
+        email_domain: email.split("@")[1] ?? null,
+        has_name: Boolean(name),
+      },
+    });
+
+    // Send verification email (best-effort)
     try {
-      const { sendEmail, verificationEmailTemplate, buildVerifyEmailUrl } = await import("@/lib/email");
-      const { randomToken, sha256, expiresInMinutes } = await import("@/lib/tokens");
+      const {
+        sendEmail,
+        verificationEmailTemplate,
+        buildVerifyEmailUrl,
+      } = await import("@/lib/email");
+      const { randomToken, sha256, expiresInMinutes } = await import(
+        "@/lib/tokens"
+      );
 
       const identifier = `verify:${email}`;
       await prisma.verificationToken.deleteMany({ where: { identifier } });
