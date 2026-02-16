@@ -20,10 +20,11 @@ async function posthogCapture(opts: {
   properties?: Record<string, any>;
   uuid?: string;
 }) {
-  const apiKey =
-    process.env.POSTHOG_KEY || process.env.NEXT_PUBLIC_POSTHOG_KEY;
-
-  if (!apiKey) return;
+  const apiKey = process.env.POSTHOG_KEY || process.env.NEXT_PUBLIC_POSTHOG_KEY;
+  if (!apiKey) {
+    console.warn("[POSTHOG] Missing POSTHOG_KEY/NEXT_PUBLIC_POSTHOG_KEY (skipping capture)");
+    return;
+  }
 
   const host = (
     process.env.POSTHOG_HOST ||
@@ -43,13 +44,23 @@ async function posthogCapture(opts: {
   };
 
   try {
-    await fetch(`${host}/capture/`, {
+    const res = await fetch(`${host}/capture/`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
+
+    if (!res.ok) {
+      const txt = await res.text().catch(() => "");
+      console.warn(
+        `[POSTHOG] capture failed: ${res.status} ${res.statusText} host=${host} body=${txt.slice(0, 200)}`
+      );
+    } else {
+      // Optional: keep this for now while verifying, then we can remove later
+      console.log(`[POSTHOG] capture ok: event=${opts.event} host=${host}`);
+    }
   } catch (err) {
-    console.warn("PostHog signup capture failed:", err);
+    console.warn("[POSTHOG] signup capture fetch threw:", err);
   }
 }
 
@@ -61,34 +72,29 @@ export async function POST(req: Request) {
     const password = body.password;
     const name = body.name?.trim() || null;
 
+    // Basic validation
     if (!email || !password) {
-      return NextResponse.json(
-        { ok: false, error: "Email and password are required." },
-        { status: 400 }
-      );
+      return NextResponse.json({ ok: false, error: "Email and password are required." }, { status: 400 });
     }
 
     if (password.length < 8) {
-      return NextResponse.json(
-        { ok: false, error: "Password must be at least 8 characters long." },
-        { status: 400 }
-      );
+      return NextResponse.json({ ok: false, error: "Password must be at least 8 characters long." }, { status: 400 });
     }
 
+    // Check for existing user
     const existing = await prisma.user.findUnique({
       where: { email },
       select: { id: true },
     });
 
     if (existing) {
-      return NextResponse.json(
-        { ok: false, error: "An account with this email already exists." },
-        { status: 409 }
-      );
+      return NextResponse.json({ ok: false, error: "An account with this email already exists." }, { status: 409 });
     }
 
+    // Hash password
     const passwordHash = await bcrypt.hash(password, 12);
 
+    // Create user (unverified by default)
     const user = await prisma.user.create({
       data: {
         email,
@@ -114,16 +120,10 @@ export async function POST(req: Request) {
       },
     });
 
-    // Send verification email (best-effort)
+    // Send verification email (best-effort; don’t block account creation)
     try {
-      const {
-        sendEmail,
-        verificationEmailTemplate,
-        buildVerifyEmailUrl,
-      } = await import("@/lib/email");
-      const { randomToken, sha256, expiresInMinutes } = await import(
-        "@/lib/tokens"
-      );
+      const { sendEmail, verificationEmailTemplate, buildVerifyEmailUrl } = await import("@/lib/email");
+      const { randomToken, sha256, expiresInMinutes } = await import("@/lib/tokens");
 
       const identifier = `verify:${email}`;
       await prisma.verificationToken.deleteMany({ where: { identifier } });
@@ -154,9 +154,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, data: user }, { status: 201 });
   } catch (err) {
     console.error("[REGISTER_ERROR]", err);
-    return NextResponse.json(
-      { ok: false, error: "Failed to create account." },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: "Failed to create account." }, { status: 500 });
   }
 }
