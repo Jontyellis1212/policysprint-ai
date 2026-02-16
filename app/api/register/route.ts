@@ -1,3 +1,4 @@
+// app/api/register/route.ts
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
@@ -10,9 +11,12 @@ type RegisterPayload = {
 
 /**
  * Minimal server-side PostHog capture.
+ * IMPORTANT (US PostHog Cloud):
+ *   - Ingestion host is typically https://us.i.posthog.com (NOT https://us.posthog.com)
+ *
  * Uses:
  *   POSTHOG_KEY or NEXT_PUBLIC_POSTHOG_KEY
- *   POSTHOG_HOST or NEXT_PUBLIC_POSTHOG_HOST (defaults to app.posthog.com)
+ *   POSTHOG_HOST or NEXT_PUBLIC_POSTHOG_HOST (defaults to https://us.i.posthog.com)
  */
 async function posthogCapture(opts: {
   distinctId: string;
@@ -29,7 +33,7 @@ async function posthogCapture(opts: {
   const host = (
     process.env.POSTHOG_HOST ||
     process.env.NEXT_PUBLIC_POSTHOG_HOST ||
-    "https://app.posthog.com"
+    "https://us.i.posthog.com"
   ).replace(/\/+$/, "");
 
   const payload = {
@@ -56,7 +60,7 @@ async function posthogCapture(opts: {
         `[POSTHOG] capture failed: ${res.status} ${res.statusText} host=${host} body=${txt.slice(0, 200)}`
       );
     } else {
-      // Optional: keep this for now while verifying, then we can remove later
+      // Keep this while verifying; you can remove later once confirmed
       console.log(`[POSTHOG] capture ok: event=${opts.event} host=${host}`);
     }
   } catch (err) {
