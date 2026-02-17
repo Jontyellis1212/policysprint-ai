@@ -64,6 +64,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <PostHogProvider>
           <div className="min-h-screen flex flex-col">
             <Header />
+            <meta name="facebook-domain-verification" content="soy04f60rp8jwxfsq9s45ciestjp6x" />
             <main className="flex-1">{children}</main>
             <Footer />
           </div>
