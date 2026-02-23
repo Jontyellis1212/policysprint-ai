@@ -48,7 +48,7 @@ const tiers: Tier[] = [
     price: "$49",
     priceSub: "per month, per organisation",
     description:
-      "For organisations that want repeatable, up-to-date AI policies and staff guidance.",
+      "Make your policy official — download without watermark, save your organisation, and regenerate staff guidance anytime.",
     highlight: true,
     comingSoon: false,
     ctaLabel: "Upgrade to Pro",
@@ -223,7 +223,7 @@ export default async function PricingPage() {
                             type="submit"
                             className="inline-flex w-full items-center justify-center rounded-full px-4 py-2.5 text-sm font-medium transition bg-emerald-500 text-slate-950 hover:bg-emerald-400"
                           >
-                            Upgrade to Pro
+                            Download without watermark — $49/mo
                           </button>
                         </form>
                       ) : (
@@ -231,7 +231,7 @@ export default async function PricingPage() {
                           href="/login?callbackUrl=%2Fpricing"
                           className="inline-flex w-full items-center justify-center rounded-full px-4 py-2.5 text-sm font-medium transition bg-emerald-500 text-slate-950 hover:bg-emerald-400"
                         >
-                          Log in to upgrade
+                          Download without watermark — $49/mo
                         </Link>
                       )
                     ) : (
@@ -251,7 +251,9 @@ export default async function PricingPage() {
 
                   {isPro && !isAlreadyPro && (
                     <p className="mt-3 text-xs text-slate-400">
-                      You&apos;ll be redirected to Stripe Checkout. Cancel anytime.
+                      {isLoggedIn
+                        ? "Instant access after Stripe Checkout. Cancel anytime."
+                        : "Log in (or create a free account) then you’ll go straight to Stripe Checkout. Cancel anytime."}
                     </p>
                   )}
 
@@ -296,8 +298,9 @@ export default async function PricingPage() {
                   What happens after I upgrade?
                 </h3>
                 <p className="mt-1 text-slate-300">
-                  After payment, your account is automatically upgraded to Pro via Stripe webhooks.
-                  You can manage or cancel your subscription at any time from the billing portal.
+                  After payment, your account is automatically upgraded to Pro
+                  via Stripe webhooks. You can manage or cancel your
+                  subscription at any time from the billing portal.
                 </p>
               </div>
               <div>
@@ -307,8 +310,8 @@ export default async function PricingPage() {
                 <p className="mt-1 text-slate-300">
                   For many organisations, the built-in prompts and options will
                   be enough. If you have strict wording, existing policies or a
-                  complex risk setup, the Enterprise tier is designed for
-                  deeper customisation.
+                  complex risk setup, the Enterprise tier is designed for deeper
+                  customisation.
                 </p>
               </div>
               <div>
