@@ -4,7 +4,7 @@ import { auth } from "@/auth";
 
 export const metadata: Metadata = {
   title: "Pricing | PolicySprint AI",
-  description: "Simple, transparent pricing for AI policy compliance.",
+  description: "Simple, transparent pricing for AI policy readiness.",
 };
 
 type Tier = {
@@ -23,65 +23,43 @@ type Tier = {
 
 const tiers: Tier[] = [
   {
-    name: "Starter",
-    badge: "Best for getting started",
-    price: "$0",
-    priceSub: "during beta",
-    description:
-      "Generate your first AI Use Policy and share it internally without any friction.",
-    highlight: false,
-    comingSoon: false,
-    ctaLabel: "Try live demo",
-    ctaHref: "/?demo=1",
-    ctaVariant: "outline",
-    features: [
-      "AI Use Policy generator",
-      "3-step wizard (business → risk → outputs)",
-      "PDF export via browser print",
-      "Sample/demo mode with realistic data",
-      "Copy & paste policy into your own templates",
-    ],
-  },
-  {
     name: "Pro",
-    badge: "Most popular",
+    badge: "Founding rate",
     price: "$49",
     priceSub: "per month, per organisation",
     description:
-      "Make your policy official — download without watermark, save your organisation, and regenerate staff guidance anytime.",
+      "Ongoing access to keep your AI policy current — regenerate, update staff guidance, and roll out training as AI evolves.",
     highlight: true,
     comingSoon: false,
-    ctaLabel: "Upgrade to Pro",
+    ctaLabel: "Get Pro access",
     ctaVariant: "primary",
     features: [
-      "Unlimited policy generations",
-      "Saved organisation profiles",
+      "Official policy PDF download (no watermark)",
+      "Edit & regenerate anytime",
+      "Saved organisation profile",
       "Staff-facing AI Use Guide output",
-      "Training quiz generated from your policy",
+      "Built-in AI awareness quiz generated from your policy",
       "Version history for policy updates",
       "Priority support & onboarding",
     ],
   },
   {
-    name: "Enterprise",
-    badge: "For complex risk & scale",
-    price: "Custom",
-    priceSub: "annual",
+    name: "Starter",
+    badge: "Try it first",
+    price: "$0",
+    priceSub: "free access",
     description:
-      "For larger organisations with complex risk, multiple business units or custom workflows.",
+      "Generate and preview your policy before rolling it out across your organisation.",
     highlight: false,
-    comingSoon: true,
-    ctaLabel: "Talk to us",
-    ctaHref:
-      "mailto:hello@policysprint.ai?subject=Enterprise%20enquiry&body=Hi%20there%2C%0D%0A%0D%0AWe%27d%20like%20to%20discuss%20PolicySprint%20AI%20for%20our%20organisation.%0D%0A%0D%0AOrganisation%20name%3A%0D%0AStaff%20count%3A%0D%0AIndustry%3A%0D%0AKey%20AI%20use%20cases%3A%0D%0A",
+    comingSoon: false,
+    ctaLabel: "Try the generator",
+    ctaHref: "/",
     ctaVariant: "outline",
     features: [
-      "Everything in Pro",
-      "Custom legal/risk inputs & templates",
-      "Multiple business units & policies",
-      "SSO & advanced access controls",
-      "Dedicated success manager",
-      "On-site or virtual training sessions",
+      "AI Use Policy generator",
+      "3-step wizard (business → risk → outputs)",
+      "Preview your policy in the app",
+      "Copy & paste content manually",
     ],
   },
 ];
@@ -112,13 +90,18 @@ export default async function PricingPage() {
           <h1 className="text-3xl sm:text-4xl md:text-5xl font-semibold tracking-tight">
             Simple pricing for{" "}
             <span className="bg-gradient-to-r from-emerald-300 via-cyan-300 to-sky-300 bg-clip-text text-transparent">
-              AI policy compliance
+              AI policy readiness
             </span>
           </h1>
 
           <p className="mt-4 text-base sm:text-lg text-slate-300">
             Move from “we should really have an AI policy” to “it&apos;s already
             drafted, shared and embedded” in a single session.
+          </p>
+
+          <p className="mt-4 text-sm text-emerald-200">
+            Founding customers lock in <span className="font-medium">$49/month</span>.
+            Pricing will increase as features expand.
           </p>
 
           <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
@@ -159,13 +142,13 @@ export default async function PricingPage() {
           )}
 
           <p className="mt-3 text-xs text-slate-400">
-            Secure payments powered by Stripe. Cancel anytime.
+            Secure payments powered by Stripe. Cancel anytime in-app.
           </p>
         </section>
 
         {/* Pricing grid */}
         <section className="mt-12 md:mt-16">
-          <div className="grid gap-6 md:grid-cols-3">
+          <div className="grid gap-6 md:grid-cols-2">
             {tiers.map((tier) => {
               const isPro = tier.name === "Pro";
               const isLoggedIn = !!userId;
@@ -184,7 +167,14 @@ export default async function PricingPage() {
                   <div className="mb-3 flex items-center justify-between gap-2">
                     <h2 className="text-lg font-semibold">{tier.name}</h2>
                     {tier.badge && (
-                      <span className="rounded-full bg-slate-800 px-2.5 py-1 text-[11px] font-medium text-slate-200">
+                      <span
+                        className={classNames(
+                          "rounded-full px-2.5 py-1 text-[11px] font-medium",
+                          isPro
+                            ? "bg-emerald-500/10 text-emerald-200 border border-emerald-500/30"
+                            : "bg-slate-800 text-slate-200"
+                        )}
+                      >
                         {tier.badge}
                       </span>
                     )}
@@ -201,13 +191,20 @@ export default async function PricingPage() {
                     )}
                   </div>
 
+                  {/* Key reassurance near price (Pro only) */}
+                  {isPro && !isAlreadyPro && (
+                    <p className="mt-2 text-xs text-slate-300">
+                      No contracts · Cancel anytime
+                    </p>
+                  )}
+
                   <p className="mt-3 text-sm text-slate-300">
                     {tier.description}
                   </p>
 
                   {tier.comingSoon && (
                     <p className="mt-2 text-xs font-medium uppercase tracking-wide text-amber-300/90">
-                      Coming soon – lock in early pricing
+                      Coming soon
                     </p>
                   )}
 
@@ -223,7 +220,7 @@ export default async function PricingPage() {
                             type="submit"
                             className="inline-flex w-full items-center justify-center rounded-full px-4 py-2.5 text-sm font-medium transition bg-emerald-500 text-slate-950 hover:bg-emerald-400"
                           >
-                            Download without watermark — $49/mo
+                            Get Pro access
                           </button>
                         </form>
                       ) : (
@@ -231,12 +228,12 @@ export default async function PricingPage() {
                           href="/login?callbackUrl=%2Fpricing"
                           className="inline-flex w-full items-center justify-center rounded-full px-4 py-2.5 text-sm font-medium transition bg-emerald-500 text-slate-950 hover:bg-emerald-400"
                         >
-                          Download without watermark — $49/mo
+                          Get Pro access
                         </Link>
                       )
                     ) : (
                       <Link
-                        href={tier.ctaHref ?? "/pricing"}
+                        href={tier.ctaHref ?? "/"}
                         className={classNames(
                           "inline-flex w-full items-center justify-center rounded-full px-4 py-2.5 text-sm font-medium transition",
                           tier.ctaVariant === "primary"
@@ -250,11 +247,20 @@ export default async function PricingPage() {
                   </div>
 
                   {isPro && !isAlreadyPro && (
-                    <p className="mt-3 text-xs text-slate-400">
-                      {isLoggedIn
-                        ? "Instant access after Stripe Checkout. Cancel anytime."
-                        : "Log in (or create a free account) then you’ll go straight to Stripe Checkout. Cancel anytime."}
-                    </p>
+                    <div className="mt-3 space-y-1">
+                      <p className="text-xs text-slate-300">
+                        Instant access. Cancel anytime in-app.
+                      </p>
+                      <p className="text-xs text-slate-400">
+                        Download requires Pro — you&apos;ll confirm in Stripe
+                        Checkout first.
+                      </p>
+                      <p className="text-xs text-slate-400">
+                        {isLoggedIn
+                          ? "After checkout, you’re upgraded immediately."
+                          : "Log in (or create a free account) then you’ll go straight to Stripe Checkout."}
+                      </p>
+                    </div>
                   )}
 
                   <ul className="mt-5 space-y-2 text-sm text-slate-200">
@@ -269,6 +275,19 @@ export default async function PricingPage() {
               );
             })}
           </div>
+
+          <div className="mt-10 text-center">
+            <p className="text-sm text-slate-400">
+              Need enterprise rollout or custom workflows?{" "}
+              <a
+                href="mailto:hello@policysprint.ai?subject=Enterprise%20enquiry"
+                className="underline underline-offset-4 hover:text-slate-200"
+              >
+                Contact us
+              </a>
+              .
+            </p>
+          </div>
         </section>
 
         {/* FAQ */}
@@ -277,52 +296,43 @@ export default async function PricingPage() {
             <div>
               <h2 className="text-xl font-semibold">Pricing FAQ</h2>
               <p className="mt-2 text-sm text-slate-300">
-                Start on the free beta, validate that PolicySprint AI fits your
-                workflow, then upgrade to Pro when you&apos;re ready to roll it
-                out across the organisation.
+                Pro is designed for teams rolling out AI usage with repeatable
+                updates — not a one-off PDF.
               </p>
             </div>
+
             <div className="space-y-5 text-sm text-slate-200">
               <div>
-                <h3 className="font-medium">
-                  Is PolicySprint AI really free right now?
-                </h3>
+                <h3 className="font-medium">What do I get with Pro?</h3>
                 <p className="mt-1 text-slate-300">
-                  Yes. During the beta period, the Starter tier is free so you
-                  can generate and test AI Use Policies internally before
-                  committing to a paid plan.
+                  Pro unlocks the official PDF download and gives you ongoing
+                  access to edit, regenerate, and keep staff guidance and
+                  training updated as AI evolves.
                 </p>
               </div>
+
               <div>
-                <h3 className="font-medium">
-                  What happens after I upgrade?
-                </h3>
+                <h3 className="font-medium">Can I cancel anytime?</h3>
                 <p className="mt-1 text-slate-300">
-                  After payment, your account is automatically upgraded to Pro
-                  via Stripe webhooks. You can manage or cancel your
-                  subscription at any time from the billing portal.
+                  Yes — there are no contracts. You can cancel anytime in-app via
+                  the billing portal.
                 </p>
               </div>
+
               <div>
-                <h3 className="font-medium">
-                  Can you mirror our existing legal or risk framework?
-                </h3>
+                <h3 className="font-medium">Do I need Pro to try it?</h3>
                 <p className="mt-1 text-slate-300">
-                  For many organisations, the built-in prompts and options will
-                  be enough. If you have strict wording, existing policies or a
-                  complex risk setup, the Enterprise tier is designed for deeper
-                  customisation.
+                  No. You can generate and preview your policy on Starter to
+                  confirm it fits your organisation before upgrading.
                 </p>
               </div>
+
               <div>
-                <h3 className="font-medium">
-                  How do you handle data and security?
-                </h3>
+                <h3 className="font-medium">How do you handle data & security?</h3>
                 <p className="mt-1 text-slate-300">
                   PolicySprint AI is hosted on Vercel and uses the OpenAI API
                   for content generation. We aim to minimise data retention and
-                  publish a clear data &amp; security overview so your risk and
-                  compliance teams can review it.
+                  keep a clear data &amp; security overview for review.
                 </p>
               </div>
             </div>

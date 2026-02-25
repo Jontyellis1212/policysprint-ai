@@ -12,7 +12,7 @@ export default function DownloadGateCard({
   callbackUrl,
   pricingHref = "/pricing",
   title = "Unlock downloads",
-  subtitle = "Preview is free. Sign in or upgrade to export PDFs, staff guides, and quizzes.",
+  subtitle = "Download requires Pro. Preview is free — upgrade to export PDFs, staff guides, and quizzes.",
   showResendVerification = true,
 }: {
   showSignIn?: boolean;
@@ -27,7 +27,7 @@ export default function DownloadGateCard({
   const [resendLoading, setResendLoading] = useState(false);
   const [resendSent, setResendSent] = useState(false);
 
-  // For #2 slide/fade-in on mount/appearance
+  // slide/fade-in on mount/appearance
   const [entered, setEntered] = useState(false);
   useEffect(() => {
     const t = setTimeout(() => setEntered(true), 10);
@@ -66,24 +66,25 @@ export default function DownloadGateCard({
   if (!show) return null;
 
   const proBullets = [
-    "Download policy PDFs",
-    "Export staff guides",
-    "Download quiz PDFs",
+    "Official policy PDF download (no watermark)",
+    "Edit & regenerate anytime",
+    "Staff AI usage guide + built-in quiz",
+    "Ongoing updates as AI evolves",
   ];
+
+  const showCancelReassurance = !!showUpgrade;
 
   return (
     <div
       className={[
         "relative overflow-hidden rounded-2xl border px-4 py-3 text-[12px]",
-        // Base styling (stronger / more noticeable)
         "border-emerald-500/30 bg-slate-950/50 text-slate-200",
         "backdrop-blur-md shadow-sm",
-        // #2 slide + fade in
         "transition-all duration-300 ease-out",
         entered ? "opacity-100 translate-y-0" : "opacity-0 translate-y-2",
       ].join(" ")}
     >
-      {/* #1 Soft attention glow */}
+      {/* Soft attention glow */}
       <div className="pointer-events-none absolute -inset-10">
         <div className="absolute inset-0 bg-emerald-400/10 blur-3xl animate-pulse" />
       </div>
@@ -96,6 +97,12 @@ export default function DownloadGateCard({
           <div>
             <div className="font-semibold text-emerald-50">{title}</div>
             <div className="mt-1 text-[11px] text-emerald-100/70">{subtitle}</div>
+
+            {showCancelReassurance ? (
+              <div className="mt-2 text-[11px] text-slate-300">
+                $49/month · <span className="text-slate-200 font-medium">Cancel anytime</span> · No lock-in
+              </div>
+            ) : null}
           </div>
 
           {/* Small “Pro” pill for visibility */}
@@ -109,9 +116,7 @@ export default function DownloadGateCard({
         {/* What Pro gives you */}
         {showUpgrade ? (
           <div className="mt-3 rounded-xl border border-emerald-500/20 bg-emerald-950/20 px-3 py-2">
-            <div className="text-[11px] font-semibold text-emerald-100">
-              Pro includes:
-            </div>
+            <div className="text-[11px] font-semibold text-emerald-100">Included with Pro:</div>
             <ul className="mt-1 list-disc pl-4 text-[11px] text-emerald-100/80 space-y-0.5">
               {proBullets.map((b) => (
                 <li key={b}>{b}</li>
@@ -123,16 +128,17 @@ export default function DownloadGateCard({
         <div className="mt-3 space-y-3 text-slate-200">
           {showSignIn ? (
             <div className="rounded-xl border border-slate-800 bg-slate-950/40 px-3 py-2">
-              <div className="font-medium text-slate-50">Sign in required</div>
+              <div className="font-medium text-slate-50">Sign in to continue</div>
               <div className="mt-0.5 text-[11px] text-slate-400">
-                You can still preview and save — downloads require being signed in.
+                Preview is free. To download and save your organisation, you’ll need an account.
+                <span className="text-slate-300"> Creating one usually takes ~30 seconds.</span>
               </div>
               <div className="mt-2">
                 <Link
                   href={loginHref}
                   className="inline-flex rounded-full bg-emerald-400 px-3.5 py-1.5 text-[12px] font-semibold text-slate-950 hover:bg-emerald-300 transition"
                 >
-                  Sign in
+                  Sign in / create account
                 </Link>
               </div>
             </div>
@@ -168,17 +174,22 @@ export default function DownloadGateCard({
 
           {showUpgrade ? (
             <div className="rounded-xl border border-slate-800 bg-slate-950/40 px-3 py-2">
-              <div className="font-medium text-slate-50">Upgrade to Pro</div>
+              <div className="font-medium text-slate-50">Download requires Pro</div>
               <div className="mt-0.5 text-[11px] text-slate-400">
-                Previews still work — downloads are a Pro feature.
+                You can keep previewing for free. Upgrade to export the official PDF and keep this policy up to date.
               </div>
-              <div className="mt-2">
+
+              <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
                 <Link
                   href={pricingHref}
-                  className="inline-flex rounded-full border border-emerald-400/35 bg-emerald-950/20 px-3.5 py-1.5 text-[12px] font-semibold text-emerald-100 hover:bg-emerald-950/35 transition"
+                  className="inline-flex items-center justify-center rounded-full bg-emerald-400 px-3.5 py-1.5 text-[12px] font-semibold text-slate-950 hover:bg-emerald-300 transition"
                 >
-                  Upgrade to Pro
+                  Get Pro — cancel anytime
                 </Link>
+
+                <div className="text-[10px] text-slate-400">
+                  Secure checkout via Stripe · manage/cancel in-app
+                </div>
               </div>
             </div>
           ) : null}
