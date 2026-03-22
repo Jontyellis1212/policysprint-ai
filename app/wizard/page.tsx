@@ -3,6 +3,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { getSession } from "next-auth/react";
 import posthog from "posthog-js";
 import DownloadGateCard from "../components/DownloadGateCard";
 import GenerateStaffGuideButton from "../components/GenerateStaffGuideButton";
@@ -21,6 +22,12 @@ type Step = 1 | 2 | 3;
 type TeamSizeOption = "solo" | "small" | "medium" | "large" | "enterprise";
 type RiskLevel = "low" | "medium" | "high";
 type RiskPosture = "strict" | "balanced" | "open";
+type CheckoutMode = "subscription" | "one_time";
+type ResumeIntent =
+  | "download_pdf"
+  | "checkout_subscription"
+  | "checkout_one_time"
+  | null;
 
 interface WizardFormState {
   businessName: string;
@@ -50,6 +57,20 @@ interface GenerateResult {
   fullText?: string;
   error?: string;
 }
+
+type StoredWizardState = {
+  step: Step;
+  form: WizardFormState;
+  result: GenerateResult | null;
+  aiToolsUsed: string[];
+  aiToolPicker: string;
+  savedAt: number;
+  intendedAction: ResumeIntent;
+  ownerEmail?: string | null;
+};
+
+const STORAGE_KEY = "policysprint:wizard:generated-state:v1";
+const STORAGE_TTL_MS = 1000 * 60 * 60 * 6;
 
 const TEAM_SIZE_LABELS: Record<TeamSizeOption, string> = {
   solo: "Just me",
@@ -300,46 +321,46 @@ export default function WizardPage() {
   const [copied, setCopied] = useState(false);
   const [demoInitialised, setDemoInitialised] = useState(false);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
+  const [checkoutLoading, setCheckoutLoading] = useState<CheckoutMode | null>(
+    null
+  );
+  const [restoredFromStorage, setRestoredFromStorage] = useState(false);
+  const [paymentSuccessMessage, setPaymentSuccessMessage] = useState<
+    string | null
+  >(null);
+  const [pdfCredits, setPdfCredits] = useState<number | null>(null);
+  const [userPlan, setUserPlan] = useState<string | null>(null);
+  const [currentUserEmail, setCurrentUserEmail] = useState<string | null | undefined>(
+    undefined
+  );
+  const [hasSeenOneTimePack, setHasSeenOneTimePack] = useState(false);
 
   const [generateSeconds, setGenerateSeconds] = useState(0);
 
-  // ✅ Unified download gating
   const [downloadGate, setDownloadGate] = useState<DownloadGateState>({
     signinRequired: false,
     upgradeRequired: false,
     message: null,
   });
 
-  // Preview state
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
 
   const previewAbortRef = useRef<AbortController | null>(null);
+  const upgradeSectionRef = useRef<HTMLDivElement | null>(null);
 
-  // ========= Tracking / gating =========
-
-  // ✅ Meta Pixel Lead gating: only once per generation
   const leadFiredRef = useRef(false);
-
-  // ✅ PostHog policy_generated gating: only once per generation
   const policyGeneratedFiredRef = useRef(false);
-
-  // ✅ PostHog policy_generate_failed gating: only once per generation
   const policyGenerateFailedFiredRef = useRef(false);
-
-  // ✅ Wizard started gating: once per page view (entering Step 2)
   const wizardStartedFiredRef = useRef(false);
-
-  // ✅ Preview opened gating: once per generation
   const previewOpenedFiredRef = useRef(false);
+  const autoResumedActionRef = useRef(false);
 
-  // ✅ Per-generation correlation id + timing
   const generationIdRef = useRef<string | null>(null);
   const generationStartMsRef = useRef<number | null>(null);
 
   const newGenerationId = () => {
-    // Simple, stable, non-PII correlation id
     return `gen_${Date.now()}_${Math.random().toString(16).slice(2)}`;
   };
 
@@ -362,7 +383,111 @@ export default function WizardPage() {
     const start = generationStartMsRef.current;
     if (!start) return null;
     const secs = (Date.now() - start) / 1000;
-    return Math.max(0, Math.round(secs * 10) / 10); // 0.1s precision
+    return Math.max(0, Math.round(secs * 10) / 10);
+  };
+
+  const getResumeParams = () => {
+    if (typeof window === "undefined") {
+      return {
+        resumeCheckout: null as CheckoutMode | null,
+        resumeDownload: false,
+      };
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    const checkoutRaw = params.get("resumeCheckout");
+    const resumeCheckout =
+      checkoutRaw === "subscription" || checkoutRaw === "one_time"
+        ? checkoutRaw
+        : null;
+
+    return {
+      resumeCheckout,
+      resumeDownload: params.get("resumeDownload") === "1",
+    };
+  };
+
+  const clearResumeParams = () => {
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    url.searchParams.delete("resumeCheckout");
+    url.searchParams.delete("resumeDownload");
+    window.history.replaceState({}, "", url.toString());
+  };
+
+  const persistWizardState = (intendedAction: ResumeIntent = null) => {
+    if (typeof window === "undefined") return;
+    if (!result?.success || !result?.fullText) return;
+
+    const payload: StoredWizardState = {
+      step: 3,
+      form,
+      result,
+      aiToolsUsed,
+      aiToolPicker,
+      savedAt: Date.now(),
+      intendedAction,
+      ownerEmail: currentUserEmail ?? null,
+    };
+
+    try {
+      window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+    } catch (e) {
+      console.warn("Failed to persist wizard state:", e);
+    }
+  };
+
+  const readStoredWizardState = (): StoredWizardState | null => {
+    if (typeof window === "undefined") return null;
+
+    try {
+      const raw = window.sessionStorage.getItem(STORAGE_KEY);
+      if (!raw) return null;
+
+      const parsed = JSON.parse(raw) as StoredWizardState;
+      if (!parsed?.savedAt) return null;
+      if (Date.now() - parsed.savedAt > STORAGE_TTL_MS) {
+        window.sessionStorage.removeItem(STORAGE_KEY);
+        return null;
+      }
+
+      if (!parsed.result?.success || !parsed.result?.fullText) return null;
+
+      return parsed;
+    } catch (e) {
+      console.warn("Failed to read stored wizard state:", e);
+      return null;
+    }
+  };
+
+  const restoreWizardStateIfPresent = () => {
+    const stored = readStoredWizardState();
+    if (!stored) return false;
+
+    const storedOwnerEmail =
+      typeof stored.ownerEmail === "undefined" ? undefined : stored.ownerEmail ?? null;
+    const activeOwnerEmail = currentUserEmail ?? null;
+
+    if (storedOwnerEmail === undefined) {
+      if (activeOwnerEmail) {
+        window.sessionStorage.removeItem(STORAGE_KEY);
+        return false;
+      }
+    } else if (storedOwnerEmail !== activeOwnerEmail) {
+      window.sessionStorage.removeItem(STORAGE_KEY);
+      return false;
+    }
+
+    setForm(stored.form);
+    setResult(stored.result);
+    setAiToolsUsed(stored.aiToolsUsed || []);
+    setAiToolPicker(stored.aiToolPicker || "ChatGPT");
+    setStep(3);
+    setErrorMessage(null);
+    setCopied(false);
+    setRestoredFromStorage(true);
+
+    return true;
   };
 
   const fireMetaLeadOnce = () => {
@@ -371,8 +496,7 @@ export default function WizardPage() {
 
     if (typeof window === "undefined") return;
 
-    // Retry a few times in case fbq loads slightly after success
-    const maxAttempts = 10; // ~2s total
+    const maxAttempts = 10;
     let attempt = 0;
 
     const tick = () => {
@@ -438,7 +562,10 @@ export default function WizardPage() {
   const firePostHogPolicyGenerateFailedOnce = (
     payloadToSend: WizardFormState,
     props: {
-      reason: "non_ok_response" | "success_false_response" | "network_or_fetch_error";
+      reason:
+        | "non_ok_response"
+        | "success_false_response"
+        | "network_or_fetch_error";
       httpStatus?: number | null;
       error?: string | null;
     }
@@ -535,8 +662,6 @@ export default function WizardPage() {
     }
   };
 
-  // ========= UI logic =========
-
   const toggleAiTag = (tag: string) => {
     setForm((prev) => {
       const exists = prev.aiUsageTags.includes(tag);
@@ -574,9 +699,11 @@ export default function WizardPage() {
 
   const handleChange =
     (field: keyof WizardFormState) =>
-    (e: React.ChangeEvent<
-      HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
-    >) => {
+    (
+      e: React.ChangeEvent<
+        HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
+      >
+    ) => {
       setForm((prev) => ({ ...prev, [field]: e.target.value }));
     };
 
@@ -587,7 +714,6 @@ export default function WizardPage() {
       return;
     }
 
-    // Track step1 completion at the moment they successfully proceed.
     firePostHogStep1Completed(form);
 
     setStep(2);
@@ -601,30 +727,102 @@ export default function WizardPage() {
     setCopied(false);
   };
 
+  const startCheckout = (mode: CheckoutMode, skipPersist = false) => {
+    try {
+      posthog.capture("checkout_initiated", {
+        ...baseEventPropsForPayload(form),
+        checkout_mode: mode,
+      });
+    } catch (e) {
+      console.warn("posthog checkout_initiated capture failed:", e);
+    }
+
+    if (!skipPersist) {
+      persistWizardState(
+        mode === "subscription" ? "checkout_subscription" : "checkout_one_time"
+      );
+    }
+
+    setCheckoutLoading(mode);
+
+    const formEl = document.createElement("form");
+    formEl.method = "POST";
+    formEl.action = "/api/stripe/checkout";
+
+    const input = document.createElement("input");
+    input.type = "hidden";
+    input.name = "mode";
+    input.value = mode;
+
+    formEl.appendChild(input);
+    document.body.appendChild(formEl);
+    formEl.submit();
+  };
+
+  const waitForSession = async (timeoutMs = 4000) => {
+    const started = Date.now();
+
+    while (Date.now() - started < timeoutMs) {
+      try {
+        const session = await getSession();
+        if (session?.user) return true;
+      } catch (e) {
+        console.warn("waitForSession check failed:", e);
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+
+    return false;
+  };
+
+  const fetchUserEntitlements = async () => {
+    try {
+      const res = await fetch("/api/user", { cache: "no-store" });
+      if (!res.ok) {
+        if (res.status === 401) {
+          setUserPlan(null);
+          setPdfCredits(null);
+          setHasSeenOneTimePack(false);
+        }
+        return;
+      }
+
+      const data = await res.json();
+      const nextPlan = data.plan ?? "free";
+      const nextCredits = data.oneTimePdfCredits ?? 0;
+
+      setUserPlan(nextPlan);
+      setPdfCredits(nextCredits);
+
+      if (nextCredits > 0) {
+        setHasSeenOneTimePack(true);
+      }
+    } catch (e) {
+      console.warn("Failed to fetch user entitlements", e);
+    }
+  };
+
   const callGenerate = async (payload: WizardFormState) => {
     setLoading(true);
     setErrorMessage(null);
     setResult(null);
     setCopied(false);
 
-    // ✅ reset per-generation gating
     leadFiredRef.current = false;
     policyGeneratedFiredRef.current = false;
     policyGenerateFailedFiredRef.current = false;
     previewOpenedFiredRef.current = false;
 
-    // ✅ new generation correlation + timer
     generationIdRef.current = newGenerationId();
     generationStartMsRef.current = Date.now();
 
-    // Reset gates
     setDownloadGate({
       signinRequired: false,
       upgradeRequired: false,
       message: null,
     });
 
-    // reset preview state on regenerate
     setPreviewError(null);
     previewAbortRef.current?.abort();
     previewAbortRef.current = null;
@@ -636,7 +834,6 @@ export default function WizardPage() {
     setGenerateSeconds(0);
     const interval = setInterval(() => setGenerateSeconds((s) => s + 1), 1000);
 
-    // Build once so success/failure tracking uses same values
     const payloadToSend: WizardFormState = {
       ...payload,
       aiUsageNotes: composeAiUsageNotes(payload.aiUsageNotes, aiToolsUsed),
@@ -677,10 +874,8 @@ export default function WizardPage() {
 
         setErrorMessage(errTxt);
       } else {
-        // ✅ Track success (only on success, only once per generation)
         fireMetaLeadOnce();
         firePostHogPolicyGeneratedOnce(payloadToSend);
-
         setStep(3);
       }
     } catch (err: any) {
@@ -729,7 +924,7 @@ export default function WizardPage() {
 
   const fullPolicyTextForSave = result?.fullText || "";
 
-  const callbackUrl = "/wizard";
+  const callbackUrl = "/wizard?resumeDownload=1";
   const pricingHref = "/pricing";
 
   const handleDownloadPdf = async () => {
@@ -740,7 +935,6 @@ export default function WizardPage() {
     try {
       setDownloadingPdf(true);
 
-      // Clear only when trying again
       setDownloadGate({
         signinRequired: false,
         upgradeRequired: false,
@@ -754,62 +948,97 @@ export default function WizardPage() {
         policyText: result.fullText,
       };
 
-      const res = await fetch("/api/policy-pdf", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+      const isRecentStripeSuccess = !!paymentSuccessMessage;
+      const maxAttempts = isRecentStripeSuccess ? 4 : 1;
 
-      if (res.status === 401) {
-        firePostHogPdfDownloadBlocked(form, "signin_required");
-        setDownloadGate({
-          signinRequired: true,
-          upgradeRequired: false,
-          message: "Please sign in to export PDFs and save your organisation.",
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        const res = await fetch("/api/policy-pdf", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
         });
-        return;
-      }
 
-      if (res.status === 403) {
-        firePostHogPdfDownloadBlocked(form, "upgrade_required");
-        setDownloadGate({
-          signinRequired: false,
-          upgradeRequired: true,
-          message:
-            "Pro unlocks official PDF export plus ongoing updates (staff guide + quiz). $49/month · No contracts · Cancel anytime.",
-        });
-        return;
-      }
+        if (res.status === 401) {
+          persistWizardState("download_pdf");
+          firePostHogPdfDownloadBlocked(form, "signin_required");
 
-      if (!res.ok) {
-        const txt = await res.text().catch(() => "");
-        console.error("Failed to generate PDF", txt);
-        firePostHogPdfDownloadFailed(
-          form,
-          txt?.trim() ? txt.slice(0, 200) : `HTTP ${res.status}`
+          const loginUrl = `/login?callbackUrl=${encodeURIComponent(
+            "/wizard?resumeDownload=1"
+          )}`;
+
+          window.location.href = loginUrl;
+          return;
+        }
+
+        if (res.status === 403) {
+          if (isRecentStripeSuccess && attempt < maxAttempts) {
+            await new Promise((resolve) => setTimeout(resolve, 900));
+            continue;
+          }
+
+          persistWizardState(null);
+          firePostHogPdfDownloadBlocked(form, "upgrade_required");
+          setDownloadGate({
+            signinRequired: false,
+            upgradeRequired: true,
+            message:
+              isRecentStripeSuccess
+                ? "Your payment went through, but access is still being confirmed. Please try again in a few seconds."
+                : "Choose Pro for unlimited official PDF exports, staff guides and quiz generation — or buy a one-time PDF pack with 3 official exports for $79.",
+          });
+
+          if (hasSeenOneTimePack) {
+            setPdfCredits(0);
+          }
+
+          return;
+        }
+
+        if (!res.ok) {
+          const txt = await res.text().catch(() => "");
+          console.error("Failed to generate PDF", txt);
+          firePostHogPdfDownloadFailed(
+            form,
+            txt?.trim() ? txt.slice(0, 200) : `HTTP ${res.status}`
+          );
+          alert("Failed to generate PDF. Please try again.");
+          return;
+        }
+
+        const remainingCreditsHeader = res.headers.get(
+          "X-One-Time-Pdf-Credits-Remaining"
         );
-        alert("Failed to generate PDF. Please try again.");
+        if (remainingCreditsHeader !== null) {
+          const parsed = Number.parseInt(remainingCreditsHeader, 10);
+          if (Number.isFinite(parsed)) {
+            setPdfCredits(parsed);
+            setUserPlan("free");
+            setHasSeenOneTimePack(true);
+          }
+        }
+
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+
+        const a = document.createElement("a");
+        a.href = url;
+        a.download =
+          (form.businessName
+            ? `ai-use-policy-${form.businessName
+                .replace(/\s+/g, "-")
+                .toLowerCase()}`
+            : "ai-use-policy") + ".pdf";
+
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+
+        firePostHogPdfDownloadSucceeded(form);
         return;
       }
 
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-
-      const a = document.createElement("a");
-      a.href = url;
-      a.download =
-        (form.businessName
-          ? `ai-use-policy-${form.businessName
-              .replace(/\s+/g, "-")
-              .toLowerCase()}`
-          : "ai-use-policy") + ".pdf";
-
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-
-      firePostHogPdfDownloadSucceeded(form);
+      alert("Something went wrong while preparing your PDF.");
     } catch (err: any) {
       console.error("Error downloading PDF:", err);
       firePostHogPdfDownloadFailed(
@@ -890,6 +1119,43 @@ export default function WizardPage() {
   };
 
   useEffect(() => {
+    void (async () => {
+      try {
+        const session = await getSession();
+        setCurrentUserEmail(
+          ((session?.user as any)?.email as string | undefined) ?? null
+        );
+      } catch (e) {
+        console.warn("Failed to get session for wizard restore:", e);
+        setCurrentUserEmail(null);
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (currentUserEmail === undefined) return;
+    if (result?.success) return;
+    restoreWizardStateIfPresent();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUserEmail]);
+
+  useEffect(() => {
+    if (step === 3 && result?.success && result?.fullText) {
+      persistWizardState(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    step,
+    result?.success,
+    result?.fullText,
+    form,
+    aiToolsUsed,
+    aiToolPicker,
+    currentUserEmail,
+  ]);
+
+  useEffect(() => {
     if (step !== 3) return;
     if (!result?.success) return;
     if (!result?.fullText) return;
@@ -901,6 +1167,113 @@ export default function WizardPage() {
   }, [step, result?.success, result?.fullText]);
 
   useEffect(() => {
+    if (step !== 3) return;
+    if (!result?.success) return;
+    if (!result?.fullText) return;
+
+    void fetchUserEntitlements();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, result?.success, result?.fullText]);
+
+  useEffect(() => {
+    if (step !== 3) return;
+    if (!result?.success) return;
+    if (!result?.fullText) return;
+
+    const timeout = window.setTimeout(() => {
+      upgradeSectionRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    }, 150);
+
+    return () => window.clearTimeout(timeout);
+  }, [step, result?.success, result?.fullText]);
+
+  useEffect(() => {
+    if (autoResumedActionRef.current) return;
+    if (step !== 3) return;
+    if (!result?.success || !result?.fullText) return;
+
+    const { resumeCheckout, resumeDownload } = getResumeParams();
+    if (!resumeCheckout && !resumeDownload) return;
+
+    autoResumedActionRef.current = true;
+
+    if (resumeCheckout) {
+      let cancelled = false;
+
+      void (async () => {
+        const hasSession = await waitForSession();
+
+        if (cancelled) return;
+
+        if (!hasSession) {
+          console.warn(
+            "Session was not ready after login; not auto-resuming checkout."
+          );
+          setCheckoutLoading(null);
+          return;
+        }
+
+        startCheckout(resumeCheckout, true);
+      })();
+
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    if (resumeDownload) {
+      const timeout = window.setTimeout(() => {
+        clearResumeParams();
+        void handleDownloadPdf();
+      }, 300);
+
+      return () => window.clearTimeout(timeout);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, result?.success, result?.fullText]);
+
+  useEffect(() => {
+    if (restoredFromStorage) {
+      clearResumeParams();
+    }
+  }, [restoredFromStorage]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const params = new URLSearchParams(window.location.search);
+    const stripe = params.get("stripe");
+    const mode = params.get("mode");
+
+    if (stripe === "success") {
+      setPaymentSuccessMessage(
+        mode === "one_time"
+          ? "Payment successful — your 3 PDF exports are now unlocked."
+          : "Payment successful — your Pro access is now active."
+      );
+
+      if (mode === "one_time") {
+        setHasSeenOneTimePack(true);
+      }
+
+      setTimeout(() => {
+        upgradeSectionRef.current?.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+      }, 200);
+
+      const url = new URL(window.location.href);
+      url.searchParams.delete("stripe");
+      url.searchParams.delete("mode");
+      window.history.replaceState({}, "", url.toString());
+    }
+  }, []);
+
+  useEffect(() => {
     return () => {
       previewAbortRef.current?.abort();
       setPreviewUrl((old) => {
@@ -910,7 +1283,6 @@ export default function WizardPage() {
     };
   }, []);
 
-  // Wizard started: once per page view when Step 2 is entered
   useEffect(() => {
     if (step === 2) {
       firePostHogWizardStartedOnce();
@@ -918,7 +1290,6 @@ export default function WizardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
 
-  // Demo mode
   useEffect(() => {
     if (demoInitialised) return;
     if (typeof window === "undefined") return;
@@ -995,20 +1366,23 @@ export default function WizardPage() {
 
   const clearTools = () => setAiToolsUsed([]);
 
-  const showGateCard = downloadGate.signinRequired || downloadGate.upgradeRequired;
+  const showGateCard =
+    downloadGate.signinRequired || downloadGate.upgradeRequired;
 
-  // Helper to ensure preview open tracking has consistent payload (includes tools count etc.)
+  const hasPro = userPlan === "pro";
+  const hasOneTimeCredits = !hasPro && (pdfCredits ?? 0) > 0;
+  const isLowCredit = !hasPro && (pdfCredits ?? 0) > 0 && (pdfCredits ?? 0) <= 1;
+  const hasNoCredits =
+    !hasPro && hasSeenOneTimePack && pdfCredits !== null && pdfCredits === 0;
+
   const payloadForTracking = useMemo(() => {
-    // This is safe: it’s only used for tracking props, not for the actual generate call
     return form;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form, aiToolsUsed.length]);
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-50">
-      {/* ✅ pb-28 prevents content being hidden behind the sticky bar on mobile */}
       <div className="w-full px-4 py-6 pb-28 md:mx-auto md:max-w-5xl md:py-10 md:pb-0">
-        {/* Top bar */}
         <div className="mb-4 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <div className="flex h-7 w-7 items-center justify-center rounded-xl bg-slate-50 text-[11px] font-semibold text-slate-950">
@@ -1032,7 +1406,6 @@ export default function WizardPage() {
           </div>
         </div>
 
-        {/* Progress */}
         <div className="mb-5 space-y-2">
           <div className="h-2 w-full rounded-full bg-slate-900/60 border border-slate-800 overflow-hidden">
             <div
@@ -1049,7 +1422,6 @@ export default function WizardPage() {
         </div>
 
         <div className="space-y-4">
-          {/* Step 1 */}
           {step === 1 && (
             <section className={`${card} space-y-4`}>
               <div>
@@ -1248,7 +1620,6 @@ export default function WizardPage() {
                   ) : null}
                 </div>
 
-                {/* ✅ Sticky actions on mobile, normal flow on desktop */}
                 <MobileStickyActions>
                   <div className="flex items-center gap-2">
                     <Link
@@ -1269,7 +1640,6 @@ export default function WizardPage() {
             </section>
           )}
 
-          {/* Step 2 */}
           {step === 2 && (
             <section className={`${card} space-y-4`}>
               <div className="mb-2">
@@ -1444,7 +1814,6 @@ export default function WizardPage() {
                   </div>
                 </div>
 
-                {/* ✅ Sticky actions on mobile, normal flow on desktop */}
                 <MobileStickyActions>
                   <div className="flex items-center gap-2">
                     <button
@@ -1471,36 +1840,40 @@ export default function WizardPage() {
             </section>
           )}
 
-          {/* Step 3 */}
           {step === 3 && result && result.success && (
             <section className={`${card} space-y-5`}>
               <div>
                 <h1 className="text-xl md:text-2xl font-semibold text-slate-50 mb-1">
-                  Your AI policy draft is ready
+                  Your AI Policy Is Ready
                 </h1>
                 <p className="text-xs md:text-sm text-slate-300 max-w-2xl">
                   Copy this into your own document, tweak the language, and have
                   your lawyer review it before rolling it out to staff.
                 </p>
+
+                {restoredFromStorage ? (
+                  <p className="mt-2 text-[11px] text-emerald-200">
+                    Restored your generated policy so you can continue where you
+                    left off.
+                  </p>
+                ) : null}
               </div>
 
-              {/* ✅ Unified gating banner */}
               {showGateCard ? (
                 <DownloadGateCard
                   showSignIn={downloadGate.signinRequired}
                   showUpgrade={downloadGate.upgradeRequired}
                   callbackUrl={callbackUrl}
                   pricingHref={pricingHref}
-                  title="Make it official with Pro"
+                  title="Sign in to continue"
                   subtitle={
                     downloadGate.message ||
-                    "Pro unlocks official PDF export plus ongoing updates (staff guide + quiz). $49/month · No contracts · Cancel anytime."
+                    "Sign in to continue with your generated policy and export PDFs."
                   }
                 />
               ) : null}
 
               <div className="grid md:grid-cols-[3fr,2fr] gap-4">
-                {/* LEFT */}
                 <div className="space-y-3">
                   <div>
                     <div className="flex items-center justify-between mb-1">
@@ -1510,7 +1883,7 @@ export default function WizardPage() {
                     </div>
                     <textarea
                       readOnly
-                      className="w-full h-72 rounded-xl border border-slate-700 bg-slate-950/60 px-4 py-3 text-[11px] leading-relaxed text-slate-100"
+                      className="w-full h-52 md:h-60 rounded-xl border border-slate-700 bg-slate-950/60 px-4 py-3 text-[11px] leading-relaxed text-slate-100"
                       value={result.fullText || ""}
                     />
                     <p className="mt-1 text-[10px] text-slate-400">
@@ -1520,23 +1893,100 @@ export default function WizardPage() {
                     </p>
                   </div>
 
-                  {/* ✅ NEW: Standout Pro block (conversion hinge) */}
-                  <div className="mt-4 rounded-2xl border border-emerald-400/40 bg-emerald-950/20 p-5 shadow-lg shadow-emerald-500/10">
-                    <div className="mb-3">
-                      <h2 className="text-lg font-semibold text-slate-50">
-                        Make this official
-                      </h2>
-                      <p className="mt-1 text-sm text-slate-300 max-w-2xl">
-                        Download the official policy PDF, regenerate anytime as
-                        AI evolves, and roll out a built-in staff guide and
-                        quiz.
-                      </p>
-                      <div className="mt-2 text-sm text-emerald-200 font-medium">
-                        $49/month · Cancel anytime · No lock-in
+                  <div
+                    ref={upgradeSectionRef}
+                    className="mt-4 scroll-mt-24 rounded-2xl border border-emerald-400/40 bg-emerald-950/20 p-5 shadow-lg shadow-emerald-500/10"
+                  >
+                    <div className="mb-4">
+                      <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                        <div>
+                          <h2 className="text-lg font-semibold text-slate-50">
+                            Make this official
+                          </h2>
+                          <p className="mt-1 text-sm text-slate-300 max-w-2xl">
+                            {hasPro
+                              ? "Your Pro access is active. Export official PDFs, generate staff guides, and keep updating your policy as AI evolves."
+                              : hasOneTimeCredits
+                              ? "You’ve unlocked official PDF exports for this draft. Use your remaining credits now, or upgrade to Pro for unlimited exports and ongoing updates."
+                              : hasNoCredits
+                              ? "Your one-time PDF exports are used up. Upgrade to Pro for unlimited official exports, staff guides, and future policy updates."
+                              : "Choose the option that fits your business. Subscribe for ongoing AI policy management, or buy a one-time PDF pack for a one-off rollout."}
+                          </p>
+                        </div>
+
+                        <div className="flex flex-wrap gap-2">
+                          {hasPro ? (
+                            <span className="rounded-full border border-emerald-400/40 bg-emerald-400/10 px-3 py-1 text-[11px] font-semibold text-emerald-200">
+                              Pro active
+                            </span>
+                          ) : hasOneTimeCredits ? (
+                            <span className="rounded-full border border-emerald-400/30 bg-emerald-950/30 px-3 py-1 text-[11px] font-semibold text-emerald-200">
+                              {pdfCredits} PDF export{pdfCredits === 1 ? "" : "s"} left
+                            </span>
+                          ) : hasNoCredits ? (
+                            <span className="rounded-full border border-amber-400/30 bg-amber-950/20 px-3 py-1 text-[11px] font-semibold text-amber-200">
+                              No PDF credits left
+                            </span>
+                          ) : null}
+                        </div>
                       </div>
                     </div>
 
-                    {/* Big, cannot-miss preview button */}
+                    {paymentSuccessMessage ? (
+                      <div className="mb-4 rounded-2xl border border-emerald-300/40 bg-gradient-to-r from-emerald-500/15 to-emerald-400/10 px-4 py-4 text-sm text-emerald-50 shadow-sm ring-1 ring-emerald-400/20">
+                        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                          <div>
+                            <div className="font-semibold text-emerald-200">
+                              Payment successful
+                            </div>
+                            <div className="mt-1">{paymentSuccessMessage}</div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={handleDownloadPdf}
+                            disabled={
+                              downloadingPdf || checkoutLoading !== null
+                            }
+                            className="inline-flex items-center justify-center rounded-full bg-emerald-400 px-4 py-2 text-[12px] font-semibold text-slate-950 transition hover:bg-emerald-300 disabled:opacity-60"
+                          >
+                            {downloadingPdf
+                              ? "Preparing PDF…"
+                              : "Download your PDF now"}
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {hasOneTimeCredits ? (
+                      <div
+                        className={`mb-4 rounded-xl px-3 py-2 text-[12px] ${
+                          isLowCredit
+                            ? "border border-amber-400/30 bg-amber-950/20 text-amber-200"
+                            : "border border-emerald-400/30 bg-emerald-950/30 text-emerald-200"
+                        }`}
+                      >
+                        {isLowCredit ? (
+                          <>
+                            You have <span className="font-semibold">{pdfCredits}</span>{" "}
+                            PDF export remaining. Upgrade to Pro for unlimited
+                            official exports.
+                          </>
+                        ) : (
+                          <>
+                            You have <span className="font-semibold">{pdfCredits}</span>{" "}
+                            PDF exports remaining.
+                          </>
+                        )}
+                      </div>
+                    ) : hasNoCredits ? (
+                      <div className="mb-4 rounded-xl border border-amber-400/30 bg-amber-950/20 px-3 py-2 text-[12px] text-amber-200">
+                        Your one-time PDF pack has been used. Upgrade to Pro for
+                        unlimited official exports, staff guides, and future
+                        updates.
+                      </div>
+                    ) : null}
+
                     <div
                       className="w-full"
                       onClick={() => {
@@ -1550,25 +2000,158 @@ export default function WizardPage() {
                         onRefresh={buildPreview}
                       />
                       <p className="mt-1 text-center text-[10px] text-slate-300/80">
-                        Preview is free. PDF export and ongoing updates are
-                        included with Pro.
+                        Preview is free. Official PDF exports are unlocked with
+                        Pro or the one-time PDF pack.
                       </p>
                     </div>
 
+                    <div className="mt-5 grid gap-3 md:grid-cols-2">
+                      <div className="rounded-2xl border border-emerald-300/50 bg-slate-950/45 p-4 shadow-md ring-1 ring-emerald-400/20">
+                        <div className="mb-3 flex items-start justify-between gap-2">
+                          <div>
+                            <div className="text-sm font-semibold text-slate-50">
+                              PolicySprint Pro
+                            </div>
+                            <div className="mt-1 text-[11px] text-emerald-200">
+                              {hasNoCredits
+                                ? "Best next step after using your PDF pack"
+                                : isLowCredit
+                                ? "Best upgrade before you run out of exports"
+                                : "Best for businesses using AI ongoing"}
+                            </div>
+                          </div>
+                          <span className="rounded-full border border-emerald-400/40 bg-emerald-400/10 px-2.5 py-1 text-[10px] font-semibold text-emerald-200">
+                            {hasNoCredits
+                              ? "Recommended now"
+                              : isLowCredit
+                              ? "Upgrade before final export"
+                              : "Best value"}
+                          </span>
+                        </div>
+
+                        <div className="mb-3">
+                          <div className="flex items-end gap-2">
+                            <span className="text-2xl font-semibold text-slate-50">
+                              $49
+                            </span>
+                            <span className="pb-1 text-xs text-slate-300">
+                              / month
+                            </span>
+                          </div>
+                          <div className="mt-1 text-[11px] text-slate-400">
+                            Cancel anytime · No lock-in
+                          </div>
+                        </div>
+
+                        <ul className="space-y-2 text-[12px] text-slate-200">
+                          <li className="flex gap-2">
+                            <span className="mt-1 inline-block h-1.5 w-1.5 rounded-full bg-emerald-300" />
+                            <span>Unlimited official PDF exports</span>
+                          </li>
+                          <li className="flex gap-2">
+                            <span className="mt-1 inline-block h-1.5 w-1.5 rounded-full bg-emerald-300" />
+                            <span>Staff guide + training quiz</span>
+                          </li>
+                          <li className="flex gap-2">
+                            <span className="mt-1 inline-block h-1.5 w-1.5 rounded-full bg-emerald-300" />
+                            <span>Regenerate anytime as AI evolves</span>
+                          </li>
+                        </ul>
+
+                        <button
+                          type="button"
+                          onClick={() => startCheckout("subscription")}
+                          disabled={checkoutLoading !== null}
+                          className="mt-4 inline-flex w-full items-center justify-center rounded-full bg-emerald-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-emerald-300 disabled:opacity-60"
+                        >
+                          {checkoutLoading === "subscription"
+                            ? "Redirecting…"
+                            : "Start subscription"}
+                        </button>
+                      </div>
+
+                      <div className="rounded-2xl border border-slate-700 bg-slate-950/45 p-4">
+                        <div className="mb-3">
+                          <div className="text-sm font-semibold text-slate-50">
+                            One-time PDF Pack
+                          </div>
+                          <div className="mt-1 text-[11px] text-slate-300">
+                            {hasOneTimeCredits
+                              ? "Your current pay-as-you-go option"
+                              : hasNoCredits
+                              ? "Used up on this account"
+                              : "Best for one-off use"}
+                          </div>
+                        </div>
+
+                        <div className="mb-3">
+                          <div className="flex items-end gap-2">
+                            <span className="text-2xl font-semibold text-slate-50">
+                              $79
+                            </span>
+                            <span className="pb-1 text-xs text-slate-300">
+                              once
+                            </span>
+                          </div>
+                          <div className="mt-1 text-[11px] text-slate-400">
+                            {hasOneTimeCredits
+                              ? `${pdfCredits} official PDF export${
+                                  pdfCredits === 1 ? "" : "s"
+                                } remaining`
+                              : hasNoCredits
+                              ? "Includes 3 official PDF exports"
+                              : "Includes 3 official PDF exports"}
+                          </div>
+                        </div>
+
+                        <ul className="space-y-2 text-[12px] text-slate-200">
+                          <li className="flex gap-2">
+                            <span className="mt-1 inline-block h-1.5 w-1.5 rounded-full bg-slate-300" />
+                            <span>Ideal for draft → revise → final</span>
+                          </li>
+                          <li className="flex gap-2">
+                            <span className="mt-1 inline-block h-1.5 w-1.5 rounded-full bg-slate-300" />
+                            <span>No subscription required</span>
+                          </li>
+                          <li className="flex gap-2">
+                            <span className="mt-1 inline-block h-1.5 w-1.5 rounded-full bg-slate-300" />
+                            <span>No ongoing updates, staff guide or quiz</span>
+                          </li>
+                        </ul>
+
+                        <button
+                          type="button"
+                          onClick={() => startCheckout("one_time")}
+                          disabled={checkoutLoading !== null || hasOneTimeCredits}
+                          className="mt-4 inline-flex w-full items-center justify-center rounded-full border border-slate-600 bg-slate-900 px-5 py-3 text-sm font-semibold text-slate-100 transition hover:border-slate-500 hover:bg-slate-800 disabled:opacity-60"
+                        >
+                          {checkoutLoading === "one_time"
+                            ? "Redirecting…"
+                            : hasOneTimeCredits
+                            ? "Current pack active"
+                            : hasNoCredits
+                            ? "Buy another 3 exports"
+                            : "Buy once"}
+                        </button>
+                      </div>
+                    </div>
+
                     <div className="mt-4 flex flex-col gap-2 md:flex-row md:flex-wrap md:items-center">
-                      {/* Primary: Download */}
                       <button
                         type="button"
                         onClick={handleDownloadPdf}
-                        className="inline-flex items-center justify-center rounded-full bg-emerald-400 px-6 py-3 text-sm font-semibold text-slate-950 hover:bg-emerald-300 transition w-full md:w-auto disabled:opacity-60"
-                        disabled={downloadingPdf}
+                        className="inline-flex items-center justify-center rounded-full border border-slate-600 bg-slate-900/70 px-4 py-2 text-[12px] font-medium text-slate-100 hover:bg-slate-900 w-full md:w-auto disabled:opacity-60"
+                        disabled={downloadingPdf || checkoutLoading !== null}
                       >
                         {downloadingPdf
                           ? "Preparing PDF…"
-                          : "Download official PDF (Pro)"}
+                          : hasOneTimeCredits
+                          ? `Download your official PDF${
+                              pdfCredits !== null ? ` (${pdfCredits} left)` : ""
+                            }`
+                          : "Download your official PDF"}
                       </button>
 
-                      {/* Secondary: Save */}
                       <div className="w-full md:w-auto">
                         <SavePolicyButton
                           policyTitle={policyTitleForSave}
@@ -1579,7 +2162,6 @@ export default function WizardPage() {
                         />
                       </div>
 
-                      {/* Tertiary: Copy */}
                       <button
                         type="button"
                         onClick={handleCopy}
@@ -1588,7 +2170,6 @@ export default function WizardPage() {
                         {copied ? "Copied!" : "Copy draft"}
                       </button>
 
-                      {/* Small helper: Refresh preview */}
                       <button
                         type="button"
                         onClick={buildPreview}
@@ -1600,12 +2181,11 @@ export default function WizardPage() {
                     </div>
 
                     <p className="mt-3 text-[10px] text-slate-300/70">
-                      Instant access after checkout. Manage or cancel anytime
-                      in-app.
+                      Secure payment powered by Stripe. Subscription access is
+                      ongoing; one-time PDF packs include 3 official exports.
                     </p>
                   </div>
 
-                  {/* PDF preview — desktop only */}
                   <div className="hidden md:block rounded-xl border border-slate-800 bg-slate-950/40 p-3">
                     <div className="flex items-center justify-between gap-3 mb-2">
                       <div>
@@ -1628,7 +2208,6 @@ export default function WizardPage() {
                   </div>
                 </div>
 
-                {/* RIGHT */}
                 <div className="space-y-3 text-[11px]">
                   <div className="rounded-xl border border-slate-800 bg-slate-950/40 px-3 py-2">
                     <div className="flex items-center justify-between mb-1">
@@ -1643,7 +2222,9 @@ export default function WizardPage() {
                       Turn this policy into a short, plain-English summary you
                       can send to your team.
                     </p>
-                    <GenerateStaffGuideButton policyText={result.fullText || ""} />
+                    <GenerateStaffGuideButton
+                      policyText={result.fullText || ""}
+                    />
                   </div>
 
                   <div className="rounded-xl border border-slate-800 bg-slate-950/40 px-3 py-2">
@@ -1689,7 +2270,9 @@ export default function WizardPage() {
                 >
                   ← Back to adjust risk &amp; rules
                 </button>
-                <span>General templates only — always review with a qualified lawyer.</span>
+                <span>
+                  General templates only — always review with a qualified lawyer.
+                </span>
               </div>
             </section>
           )}

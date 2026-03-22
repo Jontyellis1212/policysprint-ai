@@ -102,8 +102,7 @@ export default function RegisterClient() {
       }
 
       // 3) Go to app (Wizard / Generator default)
-      router.push(callbackUrl);
-      router.refresh();
+window.location.assign(callbackUrl);
     } catch (err: any) {
       setError(err?.message || "Something went wrong.");
     } finally {

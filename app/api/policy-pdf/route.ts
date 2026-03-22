@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-
-// IMPORTANT: policy PDF renderer lives in app/lib/pdf in your current setup
 import { renderPdfBuffer, type PdfPayload } from "@/app/lib/pdf/renderPolicyPdf";
 
 export const runtime = "nodejs";
@@ -25,35 +23,46 @@ export async function POST(req: NextRequest) {
   const mode: "download" | "preview" =
     modeHeader === "preview" ? "preview" : "download";
 
-  // ✅ Gate DOWNLOAD only:
-  // - If Pro is required: enforce Pro only (do NOT enforce email verification)
-  // - If Pro is NOT required: you may still enforce email verification for free users if desired
+  let user:
+    | {
+        id: string;
+        emailVerified: Date | null;
+        plan: string;
+        oneTimePdfCredits: number;
+      }
+    | null = null;
+
   if (mode === "download") {
-    const user = await prisma.user.findUnique({
+    user = await prisma.user.findUnique({
       where: { email },
-      select: { emailVerified: true, plan: true },
+      select: {
+        id: true,
+        emailVerified: true,
+        plan: true,
+        oneTimePdfCredits: true,
+      },
     });
 
     const plan = user?.plan ?? "free";
+    const oneTimePdfCredits = user?.oneTimePdfCredits ?? 0;
 
     if (DOWNLOADS_REQUIRE_PRO) {
-      // Pro gate only
-      if (plan !== "pro") {
+      const hasAccess = plan === "pro" || oneTimePdfCredits > 0;
+
+      if (!hasAccess) {
         return NextResponse.json(
           {
             ok: false,
             error: {
               code: "PRO_REQUIRED",
               message: "Upgrade required",
-              details: { plan },
+              details: { plan, oneTimePdfCredits },
             },
           },
           { status: 403 }
         );
       }
-      // ✅ Pro users can download immediately — no email verification required
     } else {
-      // Optional: if downloads are free, you can still require verified email
       if (!user?.emailVerified) {
         return NextResponse.json(
           {
@@ -73,6 +82,68 @@ export async function POST(req: NextRequest) {
     const payload = (await req.json()) as PdfPayload;
     const pdfBuffer = await renderPdfBuffer(payload, mode);
 
+    let remainingCredits: number | null = null;
+
+    if (mode === "download" && user && user.plan !== "pro") {
+      if ((user.oneTimePdfCredits ?? 0) <= 0) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: {
+              code: "PRO_REQUIRED",
+              message: "Upgrade required",
+              details: {
+                plan: user.plan,
+                oneTimePdfCredits: user.oneTimePdfCredits ?? 0,
+              },
+            },
+          },
+          { status: 403 }
+        );
+      }
+
+      const result = await prisma.user.updateMany({
+        where: {
+          id: user.id,
+          oneTimePdfCredits: {
+            gt: 0,
+          },
+        },
+        data: {
+          oneTimePdfCredits: {
+            decrement: 1,
+          },
+        },
+      });
+
+      if (result.count === 0) {
+        const freshUser = await prisma.user.findUnique({
+          where: { id: user.id },
+          select: {
+            plan: true,
+            oneTimePdfCredits: true,
+          },
+        });
+
+        return NextResponse.json(
+          {
+            ok: false,
+            error: {
+              code: "PRO_REQUIRED",
+              message: "Upgrade required",
+              details: {
+                plan: freshUser?.plan ?? "free",
+                oneTimePdfCredits: freshUser?.oneTimePdfCredits ?? 0,
+              },
+            },
+          },
+          { status: 403 }
+        );
+      }
+
+      remainingCredits = Math.max(0, (user.oneTimePdfCredits ?? 0) - 1);
+    }
+
     const filename = `policy-${Date.now()}.pdf`;
     const disposition = mode === "preview" ? "inline" : "attachment";
 
@@ -82,6 +153,9 @@ export async function POST(req: NextRequest) {
         "Content-Type": "application/pdf",
         "Content-Disposition": `${disposition}; filename="${filename}"`,
         "Cache-Control": "no-store",
+        ...(remainingCredits !== null
+          ? { "X-One-Time-Pdf-Credits-Remaining": String(remainingCredits) }
+          : {}),
       },
     });
   } catch (err: any) {

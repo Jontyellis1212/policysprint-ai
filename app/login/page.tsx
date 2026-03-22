@@ -5,11 +5,22 @@ import { Suspense, useState } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 
+function sanitizeCallbackUrl(raw: string | null, fallback: string) {
+  if (!raw) return fallback;
+  if (!raw.startsWith("/")) return fallback;
+  if (raw.startsWith("//")) return fallback;
+  if (raw.includes("://")) return fallback;
+  return raw;
+}
+
 function LoginInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const callbackUrl = searchParams.get("callbackUrl") || "/policies";
+  const callbackUrl = sanitizeCallbackUrl(
+    searchParams.get("callbackUrl"),
+    "/policies"
+  );
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -41,21 +52,19 @@ function LoginInner() {
       return;
     }
 
-    router.push(callbackUrl);
-    router.refresh();
+window.location.assign(callbackUrl);
   };
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-950 px-4">
       <div className="w-full max-w-sm">
-        {/* Brand hint */}
         <div className="mb-6 text-center">
           <p className="uppercase text-[11px] font-semibold tracking-[0.14em] text-slate-400">
             PolicySprint AI
           </p>
           <h1 className="mt-2 text-2xl font-semibold text-slate-50">Sign in</h1>
           <p className="mt-1 text-sm text-slate-300">
-            Welcome back — continue to your policies.
+            Welcome back — continue where you left off.
           </p>
         </div>
 
@@ -138,7 +147,6 @@ function LoginInner() {
 }
 
 export default function LoginPage() {
-  // Required by Next 16 when using useSearchParams in the tree
   return (
     <Suspense
       fallback={

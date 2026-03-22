@@ -33,6 +33,7 @@ model User {
   stripePriceId        String?
   stripeStatus         String?
   stripeSubscriptionId String?   @unique
+  oneTimePdfCredits    Int       @default(0)
   accounts             Account[]
   policies             Policy[]
   sessions             Session[]

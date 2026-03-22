@@ -5,13 +5,6 @@ import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
 
-/**
- * Minimal server-side PostHog capture via HTTP.
- * - Uses env vars you likely already have:
- *   POSTHOG_KEY or NEXT_PUBLIC_POSTHOG_KEY
- *   POSTHOG_HOST or NEXT_PUBLIC_POSTHOG_HOST (defaults to https://app.posthog.com)
- * - Uses `uuid` for dedupe (we pass Stripe event.id).
- */
 async function posthogCapture(opts: {
   distinctId: string;
   event: string;
@@ -22,7 +15,11 @@ async function posthogCapture(opts: {
   if (!apiKey) return;
 
   const host =
-    (process.env.POSTHOG_HOST || process.env.NEXT_PUBLIC_POSTHOG_HOST || "https://app.posthog.com").replace(/\/+$/, "");
+    (
+      process.env.POSTHOG_HOST ||
+      process.env.NEXT_PUBLIC_POSTHOG_HOST ||
+      "https://app.posthog.com"
+    ).replace(/\/+$/, "");
 
   const payload = {
     api_key: apiKey,
@@ -32,7 +29,6 @@ async function posthogCapture(opts: {
       ...(opts.properties || {}),
       source: "stripe_webhook",
     },
-    // PostHog uses `uuid` for event de-duplication
     uuid: opts.uuid,
   };
 
@@ -40,16 +36,13 @@ async function posthogCapture(opts: {
     await fetch(`${host}/capture/`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      // keepalive helps in some runtimes, harmless otherwise
       body: JSON.stringify(payload),
     });
   } catch (err) {
-    // Never fail the webhook because analytics failed
     console.warn("posthog server capture failed:", err);
   }
 }
 
-// Stripe REQUIRES raw body for signature verification
 export async function POST(req: Request) {
   const sig = req.headers.get("stripe-signature");
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
@@ -74,45 +67,84 @@ export async function POST(req: Request) {
         const session = event.data.object as any;
         const userId = session.client_reference_id as string | null;
         const subscriptionId = session.subscription as string | null;
+        const paymentStatus = session.payment_status as string | null;
+        const purchaseType = (session.metadata?.purchase_type as string | undefined) || null;
 
-        if (!userId || !subscriptionId) break;
+        if (!userId) break;
 
-        // Load current user so we can detect free -> pro transition
         const existingUser = await prisma.user.findUnique({ where: { id: userId } });
         if (!existingUser) break;
 
-        const sub = await stripe.subscriptions.retrieve(subscriptionId);
+        // Subscription purchase
+        if (subscriptionId) {
+          const sub = await stripe.subscriptions.retrieve(subscriptionId);
+          const item = sub.items.data[0];
+          const periodEnd = item?.current_period_end
+            ? new Date(item.current_period_end * 1000)
+            : null;
 
-        const item = sub.items.data[0];
-        const periodEnd = item?.current_period_end ? new Date(item.current_period_end * 1000) : null;
-
-        await prisma.user.update({
-          where: { id: userId },
-          data: {
-            plan: "pro",
-            stripeSubscriptionId: sub.id,
-            stripeStatus: sub.status,
-            stripePriceId: item?.price?.id ?? null,
-            currentPeriodEnd: periodEnd,
-          },
-        });
-
-        // ✅ Only fire once when they actually become Pro (free -> pro)
-        if (existingUser.plan !== "pro") {
-          await posthogCapture({
-            distinctId: userId,
-            event: "upgrade_completed",
-            uuid: event.id, // dedupe Stripe retries
-            properties: {
-              stripe_event_type: event.type,
-              stripe_event_id: event.id,
-              stripe_subscription_id: sub.id,
-              stripe_status: sub.status,
-              stripe_price_id: item?.price?.id ?? null,
-              current_period_end: periodEnd ? periodEnd.toISOString() : null,
+          await prisma.user.update({
+            where: { id: userId },
+            data: {
+              plan: "pro",
+              stripeSubscriptionId: sub.id,
+              stripeStatus: sub.status,
+              stripePriceId: item?.price?.id ?? null,
+              currentPeriodEnd: periodEnd,
             },
           });
+
+          if (existingUser.plan !== "pro") {
+            await posthogCapture({
+              distinctId: userId,
+              event: "upgrade_completed",
+              uuid: event.id,
+              properties: {
+                stripe_event_type: event.type,
+                stripe_event_id: event.id,
+                stripe_subscription_id: sub.id,
+                stripe_status: sub.status,
+                stripe_price_id: item?.price?.id ?? null,
+                current_period_end: periodEnd ? periodEnd.toISOString() : null,
+                purchase_type: purchaseType ?? "subscription_pro",
+              },
+            });
+          }
+
+          break;
         }
+
+// One-time payment purchase
+if (paymentStatus === "paid") {
+  const creditsToGrantRaw = session.metadata?.pdf_credits_to_grant;
+  const creditsToGrant = Number.parseInt(String(creditsToGrantRaw || "3"), 10);
+  const safeCreditsToGrant =
+    Number.isFinite(creditsToGrant) && creditsToGrant > 0 ? creditsToGrant : 3;
+
+
+
+  await prisma.user.update({
+    where: { id: userId },
+    data: {
+      oneTimePdfCredits: {
+        increment: safeCreditsToGrant,
+      },
+    },
+  });
+
+  await posthogCapture({
+    distinctId: userId,
+    event: "one_time_pdf_pack_purchased",
+    uuid: event.id,
+    properties: {
+      stripe_event_type: event.type,
+      stripe_event_id: event.id,
+      payment_status: paymentStatus,
+      purchase_type: purchaseType ?? "one_time_pdf_pack",
+      pdf_credits_granted: safeCreditsToGrant,
+    },
+  });
+}
 
         break;
       }
@@ -132,7 +164,9 @@ export async function POST(req: Request) {
 
         const nextPlan = active ? "pro" : "free";
         const nextPeriodEnd =
-          active && item?.current_period_end ? new Date(item.current_period_end * 1000) : null;
+          active && item?.current_period_end
+            ? new Date(item.current_period_end * 1000)
+            : null;
 
         await prisma.user.update({
           where: { id: user.id },
@@ -144,7 +178,6 @@ export async function POST(req: Request) {
           },
         });
 
-        // Nice-to-have: capture transitions reliably (dedupe with Stripe event id)
         if (user.plan !== "pro" && nextPlan === "pro") {
           await posthogCapture({
             distinctId: user.id,
