@@ -105,22 +105,27 @@ export async function POST(req: Request) {
 
     const baseUrl = getBaseUrl(req);
 
-    const checkout =
-      mode === "one_time"
-        ? await stripe.checkout.sessions.create({
-            mode: "payment",
-            customer: stripeCustomerId,
-            line_items: [{ price: ONE_TIME_PRICE_ID, quantity: 1 }],
-            allow_promotion_codes: true,
-            client_reference_id: userId,
-            metadata: {
-              userId,
-              purchase_type: "one_time_pdf_pack",
-              pdf_credits_to_grant: "3",
-            },
-            success_url: `${baseUrl}/wizard?stripe=success&mode=one_time`,
-            cancel_url: `${baseUrl}/wizard?stripe=cancel&mode=one_time`,
-          })
+const checkout =
+  mode === "one_time"
+    ? await stripe.checkout.sessions.create({
+        mode: "payment",
+        customer: stripeCustomerId,
+        line_items: [{ price: ONE_TIME_PRICE_ID, quantity: 1 }],
+        allow_promotion_codes: true,
+        client_reference_id: userId,
+        metadata: {
+          userId,
+          purchase_type: "one_time_pdf_pack",
+          pdf_credits_to_grant: "3",
+        },
+        custom_text: {
+          submit: {
+            message: "Secure payment powered by Stripe. Instant PDF download after payment.",
+          },
+        },
+        success_url: `${baseUrl}/wizard?stripe=success&mode=one_time`,
+        cancel_url: `${baseUrl}/wizard?stripe=cancel&mode=one_time`,
+      })
         : await stripe.checkout.sessions.create({
             mode: "subscription",
             customer: stripeCustomerId,
@@ -131,6 +136,11 @@ export async function POST(req: Request) {
               userId,
               purchase_type: "subscription_pro",
             },
+            custom_text: {
+  submit: {
+    message: "Cancel anytime. Instant access to official PDF exports, staff guides, and quizzes.",
+  },
+},
             success_url: `${baseUrl}/wizard?stripe=success&mode=subscription`,
             cancel_url: `${baseUrl}/wizard?stripe=cancel&mode=subscription`,
           });
