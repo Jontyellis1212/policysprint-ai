@@ -78,13 +78,14 @@ export async function POST(req: Request) {
       modeRaw === "one_time" ? "one_time" : "subscription";
 
     if (!userId) {
-      const loginUrl = new URL("/login", req.url);
-      loginUrl.searchParams.set(
-        "callbackUrl",
-        `/wizard?resumeCheckout=${mode}`
-      );
-      return NextResponse.redirect(loginUrl, 303);
-    }
+  const baseUrl = getBaseUrl(req);
+  const loginUrl = new URL("/login", baseUrl);
+  loginUrl.searchParams.set(
+    "callbackUrl",
+    `/wizard?resumeCheckout=${mode}`
+  );
+  return NextResponse.redirect(loginUrl, 303);
+}
 
     const MONTHLY_PRICE_ID = requiredEnv("STRIPE_PRICE_ID");
     const ONE_TIME_PRICE_ID = requiredEnv("STRIPE_ONE_TIME_PRICE_ID");
