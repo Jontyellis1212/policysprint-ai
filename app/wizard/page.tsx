@@ -396,10 +396,12 @@ export default function WizardPage() {
 
     const params = new URLSearchParams(window.location.search);
     const checkoutRaw = params.get("resumeCheckout");
-    const resumeCheckout =
-      checkoutRaw === "subscription" || checkoutRaw === "one_time"
-        ? checkoutRaw
-        : null;
+const resumeCheckout: CheckoutMode | null =
+  checkoutRaw === "subscription"
+    ? "subscription"
+    : checkoutRaw === "one_time"
+    ? "one_time"
+    : null;
 
     return {
       resumeCheckout,
