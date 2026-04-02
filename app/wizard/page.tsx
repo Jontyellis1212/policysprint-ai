@@ -462,23 +462,41 @@ const resumeCheckout: CheckoutMode | null =
     }
   };
 
-  const restoreWizardStateIfPresent = () => {
-    const stored = readStoredWizardState();
-    if (!stored) return false;
+const restoreWizardStateIfPresent = () => {
+  const stored = readStoredWizardState();
+  if (!stored) return false;
 
-    const storedOwnerEmail =
-      typeof stored.ownerEmail === "undefined" ? undefined : stored.ownerEmail ?? null;
-    const activeOwnerEmail = currentUserEmail ?? null;
+  const storedOwnerEmail =
+    typeof stored.ownerEmail === "undefined"
+      ? undefined
+      : stored.ownerEmail ?? null;
+  const activeOwnerEmail = currentUserEmail ?? null;
 
-    if (storedOwnerEmail === undefined) {
-      if (activeOwnerEmail) {
-        window.sessionStorage.removeItem(STORAGE_KEY);
-        return false;
-      }
-    } else if (storedOwnerEmail !== activeOwnerEmail) {
+  if (storedOwnerEmail === undefined) {
+    if (activeOwnerEmail) {
       window.sessionStorage.removeItem(STORAGE_KEY);
       return false;
     }
+  } else if (storedOwnerEmail === null) {
+    // Allow restore for state created while logged out.
+    // After restore, the persist effect will re-save it with the signed-in user's email.
+  } else if (storedOwnerEmail !== activeOwnerEmail) {
+    window.sessionStorage.removeItem(STORAGE_KEY);
+    return false;
+  }
+
+  setForm(stored.form);
+  setResult(stored.result);
+  setAiToolsUsed(stored.aiToolsUsed || []);
+  setAiToolPicker(stored.aiToolPicker || "ChatGPT");
+  setStep(3);
+  setErrorMessage(null);
+  setCopied(false);
+  setRestoredFromStorage(true);
+
+  return true;
+};
+
 
     setForm(stored.form);
     setResult(stored.result);
