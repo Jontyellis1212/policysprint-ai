@@ -497,19 +497,6 @@ const restoreWizardStateIfPresent = () => {
   return true;
 };
 
-
-    setForm(stored.form);
-    setResult(stored.result);
-    setAiToolsUsed(stored.aiToolsUsed || []);
-    setAiToolPicker(stored.aiToolPicker || "ChatGPT");
-    setStep(3);
-    setErrorMessage(null);
-    setCopied(false);
-    setRestoredFromStorage(true);
-
-    return true;
-  };
-
   const fireMetaLeadOnce = () => {
     if (leadFiredRef.current) return;
     leadFiredRef.current = true;
