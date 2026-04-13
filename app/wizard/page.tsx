@@ -356,6 +356,7 @@ export default function WizardPage() {
   const wizardStartedFiredRef = useRef(false);
   const previewOpenedFiredRef = useRef(false);
   const autoResumedActionRef = useRef(false);
+  const paywallViewedKeyRef = useRef<string | null>(null);
 
   const generationIdRef = useRef<string | null>(null);
   const generationStartMsRef = useRef<number | null>(null);
@@ -609,6 +610,37 @@ const restoreWizardStateIfPresent = () => {
     }
   };
 
+  const firePostHogPaywallViewedOnce = (payloadToSend: WizardFormState) => {
+    const key = generationIdRef.current || "no_generation_id";
+    if (paywallViewedKeyRef.current === key) return;
+    paywallViewedKeyRef.current = key;
+
+    try {
+      posthog.capture("paywall_viewed", {
+        ...baseEventPropsForPayload(payloadToSend),
+        plan: userPlan ?? "unknown",
+        one_time_pdf_credits: pdfCredits,
+        has_seen_one_time_pack: hasSeenOneTimePack,
+      });
+    } catch (e) {
+      console.warn("posthog paywall_viewed capture failed:", e);
+    }
+  };
+
+  const firePostHogSignupStarted = (
+    payloadToSend: WizardFormState,
+    reason: "signin_required" | "explicit_signin"
+  ) => {
+    try {
+      posthog.capture("signup_started", {
+        ...baseEventPropsForPayload(payloadToSend),
+        reason,
+      });
+    } catch (e) {
+      console.warn("posthog signup_started capture failed:", e);
+    }
+  };
+
   const firePostHogCopyClicked = (payloadToSend: WizardFormState) => {
     try {
       posthog.capture("copy_clicked", {
@@ -820,6 +852,7 @@ const restoreWizardStateIfPresent = () => {
     policyGeneratedFiredRef.current = false;
     policyGenerateFailedFiredRef.current = false;
     previewOpenedFiredRef.current = false;
+    paywallViewedKeyRef.current = null;
 
     generationIdRef.current = newGenerationId();
     generationStartMsRef.current = Date.now();
@@ -968,6 +1001,7 @@ const restoreWizardStateIfPresent = () => {
         if (res.status === 401) {
           persistWizardState("download_pdf");
           firePostHogPdfDownloadBlocked(form, "signin_required");
+          firePostHogSignupStarted(form, "signin_required");
 
           const loginUrl = `/login?callbackUrl=${encodeURIComponent(
             "/wizard?resumeDownload=1"
@@ -1181,6 +1215,22 @@ const restoreWizardStateIfPresent = () => {
     void fetchUserEntitlements();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, result?.success, result?.fullText]);
+
+  useEffect(() => {
+    if (step !== 3) return;
+    if (!result?.success) return;
+    if (!result?.fullText) return;
+
+    firePostHogPaywallViewedOnce(payloadForTracking);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    step,
+    result?.success,
+    result?.fullText,
+    userPlan,
+    pdfCredits,
+    hasSeenOneTimePack,
+  ]);
 
   useEffect(() => {
     if (step !== 3) return;
